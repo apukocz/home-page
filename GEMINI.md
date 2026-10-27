@@ -1,132 +1,228 @@
-# Podsumowanie Wdrożenia: Sterowanie Roletami (PHP + Apache + I2C)
+# Podsumowanie Wdrożenia: Sterowanie Roletami PI1 i PI2 (PHP + Apache + I2C)
 
-Niniejszy plik zawiera podsumowanie ustaleń, struktury plików, konfiguracji oraz pełną składnię poleceń `curl` do zdalnego sterowania serwerem Apache.
-
----
-
-## 1. Architektura i Działanie
-
-Stworzona aplikacja PHP ([`index.php`](file:///home/user/home_page/index.php)) zarządza przekaźnikami I2C PCA9685 poprzez wywoływanie skryptu [`script.sh`](file:///home/user/home_page/script.sh).
-
-### Dwa przyciski dla każdego wiersza:
-1. **Przycisk 1 (Stanowy - Otwórz / Zamknij):**
-   - Dynamicznie odzwierciedla aktualny stan:
-     - Gdy roleta jest **zamknięta**: przycisk wyświetla napis **"Otwórz"** (akcja: `open`).
-     - Gdy roleta jest **otwarta**: przycisk wyświetla napis **"Zamknij"** (akcja: `close`).
-     - Gdy roleta jest **w trakcie ruchu**: wyświetla **"Otwieranie..."** lub **"Zamykanie..."** wraz ze spinnerem.
-2. **Przycisk 2 (Stop):**
-   - Zawsze dostępny czerwony przycisk **"Stop"** (akcja: `stop`).
-   - Natychmiast ubija procesy `open`/`close` w tle i zatrzymuje silnik.
-
-> [!NOTE]
-> Akcje `open` i `close` trwają 16–31 sekund (zgodnie z czasem w `relay_setup.conf`). Wykonywane są w tle (`nohup script.sh ... > /dev/null 2>&1 &`), dzięki czemu interfejs WWW nie ulega zablokowaniu, a przycisk **Stop** może w każdej chwili przerwać ruch rolety.
+Niniejszy dokument zawiera podsumowanie architektury środowiska multi-server, konfiguracji przekaźników i paneli WWW dla serwerów **PI1** (`10.0.0.4`) oraz **PI2** (`10.0.0.5`), pełną składnię poleceń `curl` do zdalnego sterowania przez API oraz chronologiczny rejestr wykonanych prac i ustaleń w ramach konwersacji.
 
 ---
 
-## 2. Lista Pomieszczeń i Przekaźników
+## 1. Architektura Środowiska Multi-Server
 
-Poniższa tabela przedstawia mapowanie identyfikatorów (`room`) na fizyczne przekaźniki z pliku [`relay_setup.conf`](file:///home/user/home_page/gpio/relay_setup.conf):
+W systemie domowym funkcjonują 3 serwery Apache/Linux połączone w sieci lokalnej:
 
-| Identyfikator (`room`) | Nazwa w panelu | Przekaźniki w `relay_setup.conf` |
-|---|---|---|
-| `kuchnie` | Kuchnie | `relay_piwnica_kuchnia_lewe`, `relay_piwnica_kuchnia_prawe` |
-| `duzy_pokoj` | Duży pokój (wszystkie) | Wszystkie 8 rolet w salonie (wschód, południe, zachód) |
-| `duzy_wschod` | Duży wschód | `relay_pietro-1_duzy-pokoj_wschod_lewe`, `relay_pietro-1_duzy-pokoj_wschod_prawe` |
-| `duzy_poludnie` | Duży południe | `relay_pietro-1_duzy-pokoj_poludnie_lewe`, `relay_pietro-1_duzy-pokoj_poludnie_srodkowe`, `relay_pietro-1_duzy-pokoj_poludnie_prawe` |
-| `duzy_zachod` | Duży zachód | `relay_pietro-1_duzy-pokoj_zachod_lewe`, `relay_pietro-1_duzy-pokoj_zachod_prawe`, `relay_pietro-1_duzy-pokoj_zachod_balkon` |
-| `prasowalnia` | Prasowalnia | `relay_piwnica_prasowalnia` |
-| `piwnica_wejscie` | Piwnica wejście | `relay_piwnica_wejscie` |
-| `dach_wejscie` | Dach wejście | `relay_pietro-3_dach` |
-| `ALL` | Wszystkie | Wykonuje daną akcję dla wszystkich pomieszczeń |
+1. **`cubie` (`10.0.0.2` | katalog `src/cubie/`):**
+   - Sterowanie piecem, CWU, pompą ciepła, pompami obiegowymi, zbiornikiem, elektrozaworami wody i rekuperacją/wentylacją.
+   - *Status:* Pozostawiony bez zmian per wytyczne użytkownika.
+2. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
+   - Sterowanie roletami i bramami: **Piętro 1 (Salon - 8 rolet)**, **Piwnica (5 rolet)**, **Dach (1 roleta)** oraz **Bramy (wjazdowa i garażowa - 2 przekaźniki)**.
+   - Sprzęt: PCA9685 I2C (`RELAY_POWER=14`), skrypt `script.sh` dla rolet oraz `script_one.sh` dla bram z czasem powrotu (90s).
+3. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
+   - Sterowanie roletami: **Piętro 2 (7 rolet)** oraz **Parter (6 rolet)**.
+   - Sprzęt: PCA9685 I2C (`RELAY_POWER=23`), skrypt `script.sh`.
 
 ---
 
-## 3. Składnia Poleceń `curl` (Zdalne Sterowanie)
+## 2. Serwer PI1 (`10.0.0.4`): Konfiguracja Rolet, Sekcji i Bram
 
-Aplikacja obsługuje zarówno zapytania **POST**, jak i **GET**, a odpowiedzi zwracane są w formacie **JSON**.
+Panel serwera PI1 (**Sterowanie Roletami PI1**) został zorganizowany w 4 czytelnych sekcjach:
+1. **Piętro 1 (Salon)** – 3 pozycje pokojowe (8 rolet łącznie),
+2. **Piwnica** – 4 pomieszczenia (5 rolet łącznie),
+3. **Dach (Piętro 3)** – okno dachowe,
+4. **Bramy posesji** – brama wjazdowa i garażowa (sterowanie impulsowe).
 
-Zamień `<IP_SERWERA>` na adres IP maszyny z serwerem Apache (np. `192.168.1.50`).
+### Tabela Mapowania Rolet i Przekaźników PI1 ([`src/pi1/config.php`](file:///home/user/home-page/src/pi1/config.php))
 
-### A. Metoda POST (Zalecana)
+| Sekcja / Kondygnacja | Identyfikator (`room`) | Nazwa w panelu | Fizyczne przekaźniki w `relay_setup.conf` | Typ / Liczba rolet |
+|---|---|---|---|---|
+| **Piętro 1 (Salon)** | `duzy_wschod` | Duży pokój - Wschód | `relay_pietro-1_duzy-pokoj_wschod_lewe`, `relay_pietro-1_duzy-pokoj_wschod_prawe` | Połączone (2 rolety, akordeon) |
+| **Piętro 1 (Salon)** | `duzy_poludnie` | Duży pokój - Południe | `relay_pietro-1_duzy-pokoj_poludnie_lewe`, `relay_pietro-1_duzy-pokoj_poludnie_srodkowe`, `relay_pietro-1_duzy-pokoj_poludnie_prawe` | Połączone (3 rolety, akordeon) |
+| **Piętro 1 (Salon)** | `duzy_zachod` | Duży pokój - Zachód | `relay_pietro-1_duzy-pokoj_zachod_lewe`, `relay_pietro-1_duzy-pokoj_zachod_prawe`, `relay_pietro-1_duzy-pokoj_zachod_balkon` | Połączone (3 rolety, akordeon) |
+| **Piwnica** | `kuchnia` | Kuchnia | `relay_piwnica_kuchnia_lewe`, `relay_piwnica_kuchnia_prawe` | Połączone (2 rolety, akordeon) |
+| **Piwnica** | `prasowalnia` | Prasowalnia | `relay_piwnica_prasowalnia` | Pojedyncza (1 roleta) |
+| **Piwnica** | `piwnica_skladzik` | Piwnica składzik | `relay_piwnica_skladzik` | Pojedyncza (1 roleta) |
+| **Piwnica** | `piwnica_wejscie` | Piwnica wejście | `relay_piwnica_wejscie` | Pojedyncza (1 roleta) |
+| **Dach** | `dach` | Okno dachowe | `relay_pietro-3_dach` | Pojedyncza (1 roleta) |
+| **Bramy** | `brama_wjazd` | Brama wjazdowa | `relay_brama_wjazd` | Impulsowa (1s impuls, 90s auto-powrót) |
+| **Bramy** | `brama_garaz` | Brama garażowa | `relay_brama_garaz` | Impulsowa (1s impuls) |
+
+### Widoki na serwerze PI1:
+- **Główny ([`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php)):** 10 pozycji z akordeonami rozwijania pojedynczych skrzydeł (przycisk globalny **`Rozwiń szczegóły (4)`**), przyciski grupowe sekcji oraz pełna obsługa AJAX.
+- **Wszystkie przekaźniki ([`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php)):** 16 niezależnych fizycznych przekaźników z osobnymi przyciskami Otwórz/Zamknij i Stop.
+- **Zgodność wsteczna z Alexa / skryptami legacy:** zachowano pełną obsługę parametrów GET `?sw1=on`, `?sw2=on`, `?sw3=on`, `?sw101=on` (stop) itd.
+
+---
+
+## 3. Serwer PI2 (`10.0.0.5`): Konfiguracja Rolet i Kondygnacji
+
+Panel serwera PI2 (**Sterowanie Roletami PI2**) został zorganizowany w układzie dwupoziomowym:
+- **Kondygnacja 1 (górna): Piętro 2** – wyświetlana jako pierwsza.
+- **Kondygnacja 2 (dolna): Parter** – wyświetlana jako druga.
+
+### Tabela Mapowania Rolet i Przekaźników PI2 ([`src/pi2/config.php`](file:///home/user/home-page/src/pi2/config.php))
+
+| Kondygnacja | Identyfikator (`room`) | Nazwa w panelu | Fizyczne przekaźniki w `relay_setup.conf` | Typ / Liczba rolet |
+|---|---|---|---|---|
+| **Piętro 2** | `lazienka_gora` | Łazienka góra | `relay_pietro-2_lazienka_prawe`, `relay_pietro-2_lazienka_lewe` | Połączone (2 rolety, akordeon) |
+| **Piętro 2** | `przemek` | Przemek | `relay_pietro-2_przemek` | Pojedyncza |
+| **Piętro 2** | `olek` | Olek | `relay_pietro-2_olek_glowne`, `relay_pietro-2_olek_balkon` | Połączone (2 rolety, akordeon) |
+| **Piętro 2** | `biblioteczka` | Biblioteczka | `relay_pietro-2_biblioteczka_glowne`, `relay_pietro-2_biblioteczka_balkon` | Połączone (2 rolety, akordeon) |
+| **Parter** | `mama` | Mama | `relay_parter_mama` | Pojedyncza |
+| **Parter** | `lazienka_dol` | Łazienka dół | `relay_parter_lazienka` | Pojedyncza |
+| **Parter** | `komputerowka` | Komputerówka | `relay_parter_komputerowka` | Pojedyncza |
+| **Parter** | `ogrod` | Ogród | `relay_parter_ogrod` | Pojedyncza |
+| **Parter** | `wejscie_glowne` | Wejście główne | `relay_parter_wejscie_glowne` | Pojedyncza |
+| **Parter** | `wejscie_okno` | Wejście okno | `relay_parter_wejscie_okno` | Pojedyncza |
+
+### Widoki na serwerze PI2:
+- **Główny ([`src/pi2/index.php`](file:///home/user/home-page/src/pi2/index.php)):** 10 pozycji pokojowych z przyciskiem globalnym **`Rozwiń szczegóły (3)`**.
+- **Wszystkie przekaźniki ([`src/pi2/index_full.php`](file:///home/user/home-page/src/pi2/index_full.php)):** 13 niezależnych wierszy przekaźników.
+
+---
+
+## 4. Składnia Poleceń `curl` i Zdalne API
+
+Aplikacje zwracają odpowiedzi w formacie **JSON** i obsługują metody **POST** oraz **GET**.
+
+### A. Sterowanie serwerem PI1 (`10.0.0.4`)
 
 ```bash
-# 1. Dach wejście - Otwórz
-curl -X POST http://<IP_SERWERA>/index.php -d "room=dach_wejscie&action=open"
+# 1. Piętro 1 (Salon - wszystkie 8 rolet naraz)
+curl -X POST http://10.0.0.4/index.php -d "room=FLOOR_PIETRO_1&action=open"
+curl -X POST http://10.0.0.4/index.php -d "room=FLOOR_PIETRO_1&action=close"
+curl -X POST http://10.0.0.4/index.php -d "room=FLOOR_PIETRO_1&action=stop"
 
-# 2. Dach wejście - Zamknij
-curl -X POST http://<IP_SERWERA>/index.php -d "room=dach_wejscie&action=close"
+# Alias duzy_pokoj również otwiera/zamyka wszystkie 8 rolet w salonie:
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_pokoj&action=open"
 
-# 3. Dach wejście - Stop
-curl -X POST http://<IP_SERWERA>/index.php -d "room=dach_wejscie&action=stop"
+# 2. Salon według stron świata (z połączonymi roletami):
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_wschod&action=open"
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_poludnie&action=close"
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_zachod&action=stop"
 
-# 4. Przełączenie stanu (toggle: jeśli zamknięte to otwórz, jeśli otwarte to zamknij)
-curl -X POST http://<IP_SERWERA>/index.php -d "room=dach_wejscie&action=toggle"
+# 3. Piwnica (wszystkie rolety lub pojedyncze pomieszczenia):
+curl -X POST http://10.0.0.4/index.php -d "room=FLOOR_PIWNICA&action=close"
+curl -X POST http://10.0.0.4/index.php -d "room=kuchnia&action=open"
+curl -X POST http://10.0.0.4/index.php -d "room=prasowalnia&action=close"
 
-# 5. Kuchnie - Otwórz
-curl -X POST http://<IP_SERWERA>/index.php -d "room=kuchnie&action=open"
+# 4. Dach:
+curl -X POST http://10.0.0.4/index.php -d "room=dach&action=open"
 
-# 6. Duży pokój (wszystkie rolety w salonie) - Zamknij
-curl -X POST http://<IP_SERWERA>/index.php -d "room=duzy_pokoj&action=close"
+# 5. Bramy posesji:
+curl -X POST http://10.0.0.4/index.php -d "room=brama_wjazd&action=open"
+curl -X POST http://10.0.0.4/index.php -d "room=brama_garaz&action=open"
 
-# 7. Wszystkie pomieszczenia naraz - Stop
-curl -X POST http://<IP_SERWERA>/index.php -d "room=ALL&action=stop"
+# 6. Pojedyncze skrzydła okienne (pod-przekaźniki):
+curl -X POST http://10.0.0.4/index.php -d "room=pietro-1_duzy-pokoj_zachod_balkon&action=close"
+curl -X POST http://10.0.0.4/index.php -d "room=piwnica_kuchnia_prawe&action=open"
 
-# 8. Wszystkie pomieszczenia naraz - Zamknij
-curl -X POST http://<IP_SERWERA>/index.php -d "room=ALL&action=close"
+# 7. Odpytanie o statusy w czasie rzeczywistym (JSON):
+curl -s "http://10.0.0.4/index.php?api=status"
+curl -s "http://10.0.0.4/index_full.php?api=status"
 ```
 
-### B. Metoda GET (Szybkie wywołanie / Webhook / Przeglądarka)
-
-Możesz wywołać akcję bezpośrednio w pasku adresu przeglądarki lub poprzez prosty `curl`:
+### B. Sterowanie serwerem PI2 (`10.0.0.5`)
 
 ```bash
-# Otwórz dach wejście
-curl "http://<IP_SERWERA>/index.php?room=dach_wejscie&action=open"
+# 1. Całe kondygnacje naraz:
+curl -X POST http://10.0.0.5/index.php -d "room=FLOOR_PIETRO_2&action=open"
+curl -X POST http://10.0.0.5/index.php -d "room=FLOOR_PARTER&action=close"
+curl -X POST http://10.0.0.5/index.php -d "room=ALL&action=stop"
 
-# Zamknij dach wejście
-curl "http://<IP_SERWERA>/index.php?room=dach_wejscie&action=close"
+# 2. Pokoje z połączonymi roletami:
+curl -X POST http://10.0.0.5/index.php -d "room=olek&action=open"
+curl -X POST http://10.0.0.5/index.php -d "room=biblioteczka&action=close"
+curl -X POST http://10.0.0.5/index.php -d "room=lazienka_gora&action=open"
 
-# Zatrzymaj dach wejście
-curl "http://<IP_SERWERA>/index.php?room=dach_wejscie&action=stop"
+# 3. Pojedyncze skrzydła (pod-przekaźniki):
+curl -X POST http://10.0.0.5/index.php -d "room=pietro-2_olek_balkon&action=close"
+curl -X POST http://10.0.0.5/index.php -d "room=pietro-2_lazienka_prawe&action=open"
 
-# Zatrzymanie wszystkich rolet
-curl "http://<IP_SERWERA>/index.php?room=ALL&action=stop"
-```
-
-### C. Pobieranie statusu wszystkich rolet (JSON)
-
-```bash
-curl -s "http://<IP_SERWERA>/index.php?api=status"
-```
-
-Przykładowa odpowiedź JSON:
-```json
-{
-  "success": true,
-  "timestamp": 1793055029,
-  "statuses": {
-    "dach_wejscie": {
-      "state": "closed",
-      "label": "Zamknięty",
-      "badge": "badge-secondary",
-      "next_action": "open",
-      "next_label": "Otwórz",
-      "is_moving": false
-    }
-  }
-}
+# 4. Statusy w czasie rzeczywistym (JSON):
+curl -s "http://10.0.0.5/index.php?api=status"
+curl -s "http://10.0.0.5/index_full.php?api=status"
 ```
 
 ---
 
-## 4. Struktura Plików
+## 5. Struktura Plików w Repozytorium
 
-- **Pliki aplikacji:**
-  - [`/home/user/home_page/index.php`](file:///home/user/home_page/index.php) – główny interfejs WWW + obsługa API.
-  - [`/home/user/home_page/config.php`](file:///home/user/home_page/config.php) – konfiguracja ścieżek i definicje pokoi.
-  - [`/home/user/home_page/script.sh`](file:///home/user/home_page/script.sh) – skrypt wykonawczy operujący na I2C.
-  - [`/home/user/home_page/gpio/relay_setup.conf`](file:///home/user/home_page/gpio/relay_setup.conf) – adresy rejestrów i czasy otwierania.
+```
+/home/user/home-page/
+├── GEMINI.md                    # Niniejsza dokumentacja i historia konwersacji
+├── src/
+│   ├── cubie/                   # Serwer 10.0.0.2 (bez zmian per wytyczne)
+│   ├── pi1/                     # Serwer 10.0.0.4 (Piętro 1, Piwnica, Dach, Bramy)
+│   │   ├── config.php           # Konfiguracja pomieszczeń, sekcji i przekaźników
+│   │   ├── index.php            # Główny panel WWW PI1 (10 pokoi + akordeony)
+│   │   ├── index_full.php       # Szczegółowy panel WWW PI1 (16 przekaźników)
+│   │   ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=14)
+│   │   ├── script_one.sh        # Skrypt impulsowy dla bram (z auto-powrotem 90s)
+│   │   ├── gpio/
+│   │   │   └── relay_setup.conf # Konfiguracja fizycznych rejestrów PI1
+│   │   └── alexa/               # Skrypty integracji głosowej
+│   └── pi2/                     # Serwer 10.0.0.5 (Piętro 2 i Parter)
+│       ├── config.php           # Konfiguracja pomieszczeń, kondygnacji i przekaźników
+│       ├── index.php            # Główny panel WWW PI2 (10 pokoi + akordeony)
+│       ├── index_full.php       # Szczegółowy panel WWW PI2 (13 przekaźników)
+│       ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=23)
+│       └── gpio/
+│           ├── relay_setup.conf # Konfiguracja fizycznych rejestrów PI2
+│           └── relay_power.state
+```
 
-- **Środowisko Apache:**
-  - `/var/www/html/` – pliki serwowane przez serwer WWW Apache.
-  - `/var/www/gpio/` – pliki konfiguracyjne i pliki `.state` przekaźników.
+---
+
+## 6. Rejestr Konwersacji i Historia Zadań
+
+Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń użytkownika, podjętych decyzji projektowych oraz wdrożonych funkcjonalności:
+
+### Krok 1: Definicja środowiska multi-server
+- **Polecenie:** Użytkownik wskazał obecność 3 serwerów Linux/Apache:
+  - `cubie` (`10.0.0.2` w `src/cubie`),
+  - `pi1` (`10.0.0.4` w `src/pi1`),
+  - `pi2` (`10.0.0.5` w `src/pi2`).
+- **Wytyczna:** Serwer `cubie` ma pozostać bez zmian.
+
+### Krok 2: Przeniesienie konfiguracji do `src/pi2`
+- **Polecenie:** Przeniesienie plików `config.php` i `index.php` do folderu `src/pi2`, ponieważ pierwotnie przygotowana konfiguracja dotyczyła tego urządzenia.
+- **Wykonanie:** Usunięto zduplikowane pliki z korzenia repozytorium i przeniesiono pliki konfiguracyjne do `src/pi2/`.
+
+### Krok 3: Zmiana nazwy panelu PI2
+- **Polecenie:** Zmiana nazwy nagłówka panelu z *Sterowanie Roletami* na *Sterowanie Roletami PI2*.
+- **Wykonanie:** Zaktualizowano tytuł strony (`<title>`) oraz nagłówek `<h1>` w `src/pi2/index.php`.
+
+### Krok 4: Wdrożenie mapowania przycisków i łączenia przekaźników dla PI2
+- **Polecenie:**
+  - Utworzenie przycisku *Łazienka góra* łączącego `relay_pietro-2_lazienka_prawe` i `relay_pietro-2_lazienka_lewe`,
+  - Utworzenie przycisku *Przemek*,
+  - Zmiana nazwy *Łazienka* na *Łazienka dół* (`relay_parter_lazienka`),
+  - Utworzenie przycisku *Ogród*,
+  - Utworzenie przycisku *Mama*,
+  - Utworzenie przycisku *Olek* łączącego `relay_pietro-2_olek_balkon` i `relay_pietro-2_olek_glowne`,
+  - Utworzenie przycisku *Biblioteczka* łączącego `relay_pietro-2_biblioteczka_balkon` i `relay_pietro-2_biblioteczka_glowne`,
+  - Utworzenie przycisków *Komputerówka*, *Wejście główne*, *Wejście okno*,
+  - Synchronizacja konfiguracji z lokalnym serwerem Apache w `/var/www/html/`.
+- **Wykonanie:** Zdefiniowano strukturę `$ROOMS` w `src/pi2/config.php` i wdrożono równoległe sterowanie z 50 ms odstępem czasowym między zapytaniami I2C.
+
+### Krok 5: Grupowanie kondygnacji w PI2
+- **Polecenie:** Pogrupowanie klawiszy w kolejności: **Piętro 2 jako pierwsze**, a **Parter jako drugi**.
+- **Wykonanie:** Wprowadzono sekcje `floor-section` z nagłówkami pięter, ikonami oraz przyciskami grupowego otwierania/zamykania całego piętra naraz.
+
+### Krok 6: Podstrona ze wszystkimi przekaźnikami z osobna (`index_full.php`)
+- **Polecenie:** Utworzenie podstrony z osobnym sterowaniem dla każdego z fizycznych przekaźników z `relay_setup.conf` (w tym rozbicie połączonych: Biblioteczka, Łazienka góra, Olek).
+- **Wykonanie:** Utworzono plik `src/pi2/index_full.php` z 13 niezależnymi wierszami przekaźników.
+
+### Krok 7: Akordeon i rozwijanie połączonych rolet w `index.php`
+- **Polecenie:** Dodanie do `index.php` przełącznika/akordeonu, umożliwiającego rozwijanie widoku ogólnego (np. *Łazienka góra*) na poszczególne skrzydła (*Łazienka góra lewe* i *prawe*), a także odpowiednio dla Olka i Biblioteczki.
+- **Wykonanie:** Wdrożono przyciski `2 rolety ▾` w wierszach oraz globalny przycisk w nawigacji: **`Rozwiń szczegóły (3)`** / **`Zwiń szczegóły`**.
+
+### Krok 8: Wdrożenie dla serwera PI1 (`src/pi1/`)
+- **Polecenie:** Utworzenie analogicznych stron konfiguracyjnych i paneli dla serwera `pi1` w katalogu `src/pi1` na podstawie `src/pi1/gpio/relay_setup.conf`.
+- **Analiza sprzętowa PI1:**
+  - Identyfikacja 16 fizycznych przekaźników (5 w Piwnicy, 8 w Salonie na Piętrze 1, 1 na Dachu, 2 dla Bram).
+  - Skrypt `script.sh` operuje na `RELAY_POWER=14`.
+  - Bramy (`relay_brama_wjazd`, `relay_brama_garaz`) obsługiwane są przez skrypt impulsowy `script_one.sh` z automatycznym przywracaniem stanu po 90 sekundach.
+- **Wykonanie:**
+  - Utworzono [`src/pi1/config.php`](file:///home/user/home-page/src/pi1/config.php) z 4 sekcjami (*Piętro 1 (Salon)*, *Piwnica*, *Dach*, *Bramy*) i 10 głównymi pozycjami,
+  - Utworzono [`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php) z akordeonami dla 4 połączonych pokoi (przycisk **`Rozwiń szczegóły (4)`**),
+  - Utworzono [`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php) z 16 wierszami fizycznych przekaźników,
+  - Zaktualizowano `GPIO_DIR=${GPIO_DIR:-/var/www/gpio}` w `src/pi1/script.sh` oraz `src/pi1/script_one.sh`,
+  - Dodano pełną zgodność wsteczną ze starymi parametrami GET (`sw1`, `sw2`, `sw3`... ze skryptów integracji z Alexa).
