@@ -99,6 +99,15 @@ curl -X POST http://10.0.0.4/index.php -d "room=duzy_wschod&action=open"
 curl -X POST http://10.0.0.4/index.php -d "room=duzy_poludnie&action=close"
 curl -X POST http://10.0.0.4/index.php -d "room=duzy_zachod&action=stop"
 
+# Opcjonalny parametr czasu trwania w sekundach (np. time=11 lub duration=11):
+# Przekazywany jako 3. parametr do script.sh ($3). Gdy nie jest podany, skrypt używa domyślnego czasu z relay_setup.conf.
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_zachod&action=close&time=11"
+curl -X POST http://10.0.0.4/index.php -d "room=duzy_zachod&action=open&time=11"
+
+# Obsługa wywołań przez GET (również z opcjonalnym time):
+curl -s "http://10.0.0.4/index.php?room=duzy_zachod&action=close&time=11"
+curl -s "http://10.0.0.4/index.php?room=duzy_zachod&action=open&time=11"
+
 # 3. Piwnica (wszystkie rolety lub pojedyncze pomieszczenia):
 curl -X POST http://10.0.0.4/index.php -d "room=FLOOR_PIWNICA&action=close"
 curl -X POST http://10.0.0.4/index.php -d "room=kuchnia&action=open"
@@ -128,18 +137,77 @@ curl -X POST http://10.0.0.5/index.php -d "room=FLOOR_PIETRO_2&action=open"
 curl -X POST http://10.0.0.5/index.php -d "room=FLOOR_PARTER&action=close"
 curl -X POST http://10.0.0.5/index.php -d "room=ALL&action=stop"
 
-# 2. Pokoje z połączonymi roletami:
-curl -X POST http://10.0.0.5/index.php -d "room=olek&action=open"
-curl -X POST http://10.0.0.5/index.php -d "room=biblioteczka&action=close"
+# Wszystkie rolety lub cała kondygnacja z opcjonalnym czasem trwania (np. time=15):
+curl -X POST http://10.0.0.5/index.php -d "room=ALL&action=open&time=20"
+curl -X POST http://10.0.0.5/index.php -d "room=FLOOR_PIETRO_2&action=close&time=15"
+curl -s "http://10.0.0.5/index.php?room=FLOOR_PARTER&action=open&time=10"
+
+# 2. Pokoje z połączonymi roletami (również z opcjonalnym time):
+curl -X POST http://10.0.0.5/index.php -d "room=olek&action=open&time=12"
+curl -X POST http://10.0.0.5/index.php -d "room=biblioteczka&action=close&time=10"
 curl -X POST http://10.0.0.5/index.php -d "room=lazienka_gora&action=open"
 
-# 3. Pojedyncze skrzydła (pod-przekaźniki):
-curl -X POST http://10.0.0.5/index.php -d "room=pietro-2_olek_balkon&action=close"
-curl -X POST http://10.0.0.5/index.php -d "room=pietro-2_lazienka_prawe&action=open"
+# 3. Pojedyncze skrzydła oraz fizyczne przekaźniki (z opcjonalnym time):
+curl -X POST http://10.0.0.5/index.php -d "room=pietro-2_olek_balkon&action=close&time=8"
+curl -X POST http://10.0.0.5/index.php -d "room=relay_parter_ogrod&action=open&time=14"
+curl -s "http://10.0.0.5/index.php?room=przemek&action=close&time=9"
 
-# 4. Statusy w czasie rzeczywistym (JSON):
-curl -s "http://10.0.0.5/index.php?api=status"
-curl -s "http://10.0.0.5/index_full.php?api=status"
+### C. Sterowanie Wentylacją (10.0.0.8 i 10.0.0.9 przez PI1 10.0.0.4)
+
+Dedykowany panel dostępny pod adresem: `http://10.0.0.4/wentylacja.php` (oraz kompatybilny alias `rekuperacja.php`).
+Sterowanie wysyła zapytania równolegle (`curl_multi`) do obu jednostek jednocześnie (domyślnie `target=both`), z opcją wyboru pojedynczego urządzenia (`target=1` lub `target=2`).
+
+```bash
+# 1. Zasilanie (TurnOn / TurnOff)
+curl -s "http://10.0.0.4/wentylacja.php?action=turn_on"
+curl -s "http://10.0.0.4/wentylacja.php?action=turn_off"
+
+# 2. Główne tryby wentylacji
+# Tryb Auto (AutomaticMode):
+curl -s "http://10.0.0.4/wentylacja.php?action=auto"
+# Tryb Normalny (ManualMode 100% / 100%):
+curl -s "http://10.0.0.4/wentylacja.php?action=normal"
+# Tryb Wolny (ManualMode 80% / 70%):
+curl -s "http://10.0.0.4/wentylacja.php?action=slow"
+# Własne parametry ManualMode (np. 85% nawiew, 75% wywiew):
+curl -s -X POST http://10.0.0.4/wentylacja.php -d "action=manual&airflow=85&extraction=75"
+
+# 3. Wietrzenie (TurnOnAiring / TurnOffAiring)
+curl -s "http://10.0.0.4/wentylacja.php?action=airing_on&time=20"
+curl -s "http://10.0.0.4/wentylacja.php?action=airing_off"
+
+# 4. Tryb Wakacje (TurnOnHoliday / TurnOffHoliday)
+curl -s "http://10.0.0.4/wentylacja.php?action=holiday_on&days=1"
+curl -s "http://10.0.0.4/wentylacja.php?action=holiday_off"
+
+# 5. Ogrzewanie (TurnOnHeating / TurnOffHeating)
+curl -s "http://10.0.0.4/wentylacja.php?action=heating_on&temp=22"
+curl -s "http://10.0.0.4/wentylacja.php?action=heating_off"
+
+# 6. Bypass (SetByPassMode: 1=otwarty, 0=zamknięty, 2=auto)
+curl -s "http://10.0.0.4/wentylacja.php?action=bypass&mode=1"
+curl -s "http://10.0.0.4/wentylacja.php?action=bypass&mode=0"
+curl -s "http://10.0.0.4/wentylacja.php?action=bypass&mode=2"
+
+# 7. GWC (SetGWCMode: 2=auto, 1=włącz, 0=wyłącz)
+curl -s "http://10.0.0.4/wentylacja.php?action=gwc&mode=2"
+curl -s "http://10.0.0.4/wentylacja.php?action=gwc&mode=1"
+curl -s "http://10.0.0.4/wentylacja.php?action=gwc&mode=0"
+
+# 8. Wymiana filtrów (ReplaceFilters)
+curl -s "http://10.0.0.4/wentylacja.php?action=replace_filters"
+
+# 9. Bezpośrednie przekazywanie funkcji API (RunFunction?name=...)
+curl -s "http://10.0.0.4/wentylacja.php?name=AutomaticMode"
+curl -s "http://10.0.0.4/wentylacja.php?name=SetByPassMode&mode=1"
+curl -s "http://10.0.0.4/wentylacja.php?name=ManualMode&airflowvalue=100&valueofairextraction=100"
+
+# 10. Sterowanie tylko jedną jednostką (opcjonalny parametr target)
+curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=1"   # tylko 10.0.0.8
+curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
+
+# 11. Szybkie sprawdzenie dostępności jednostek
+curl -s "http://10.0.0.4/wentylacja.php?action=status"
 ```
 
 ---
@@ -151,10 +219,12 @@ curl -s "http://10.0.0.5/index_full.php?api=status"
 ├── GEMINI.md                    # Niniejsza dokumentacja i historia konwersacji
 ├── src/
 │   ├── cubie/                   # Serwer 10.0.0.2 (bez zmian per wytyczne)
-│   ├── pi1/                     # Serwer 10.0.0.4 (Piętro 1, Piwnica, Dach, Bramy)
+│   ├── pi1/                     # Serwer 10.0.0.4 (Piętro 1, Piwnica, Dach, Bramy, Wentylacja)
 │   │   ├── config.php           # Konfiguracja pomieszczeń, sekcji i przekaźników
 │   │   ├── index.php            # Główny panel WWW PI1 (10 pokoi + akordeony)
 │   │   ├── index_full.php       # Szczegółowy panel WWW PI1 (16 przekaźników)
+│   │   ├── wentylacja.php       # Panel i API sterowania dwiema jednostkami wentylacji (10.0.0.8 i 10.0.0.9)
+│   │   ├── rekuperacja.php      # Alias kompatybilności wstecznej (dołącza wentylacja.php)
 │   │   ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=14)
 │   │   ├── script_one.sh        # Skrypt impulsowy dla bram (z auto-powrotem 90s)
 │   │   ├── gpio/
@@ -268,3 +338,47 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
   - Na serwerze **PI2** belka wyświetla przejście do: **PI1** (`10.0.0.4`) oraz **Cubie** (`10.0.0.2`).
   - Zaktualizowano wszystkie widoki: [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php), [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
   - Wdrożono pliki na oba serwery produkcyjne (`10.0.0.4` i `10.0.0.5`).
+
+### Krok 12: Obsługa parametru czasu trwania (`time`) w API dla PI1 i PI2
+- **Polecenie:** Rozszerzenie interfejsu WWW, aby umożliwiał opcjonalne przekazywanie parametru czasu w sekundach (np. `time=11` lub `duration=11`), przekazywanego jako 3. parametr do skryptu `script.sh` / `script_one.sh` (`$3 TIME`), z zachowaniem domyślnego czasu z `relay_setup.conf` w razie braku parametru.
+- **Wykonanie:**
+  - Zaktualizowano funkcje `runScriptCommand($relay, $action, $time = null)` i `handleRoomAction(..., $time = null)` we wszystkich plikach: [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php), [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
+  - Dodano bezpieczną walidację parametru czasu (tylko dodatnie liczby całkowite) pobieranego z GET (`?time=...` / `?duration=...`) oraz POST (`time=...`).
+  - Gdy parametr nie jest podany, skrypt uruchamia się w dotychczasowy sposób (bez 3. argumentu), wykorzystując domyślny czas z pliku konfiguracyjnego `relay_setup.conf`.
+
+### Krok 13: Wdrożenie panelu i API równoległego sterowania dwoma rekuperatorami na serwerze PI1 (`src/pi1/rekuperacja.php`)
+- **Polecenie:** Utworzenie osobnej strony na serwerze PI1 (`10.0.0.4`) do sterowania dwoma rekuperatorami:
+  - Rekuperator 1: `10.0.0.8`
+  - Rekuperator 2: `10.0.0.9`
+  - Sterowanie polega na wysyłaniu wywołań API równolegle pod oba adresy jednocześnie.
+  - Wymagane funkcje i przyciski:
+    - Tryb Auto/Normal (`AutomaticMode` oraz `ManualMode&airflowvalue=100&valueofairextraction=100`)
+    - Tryb Wolny (`ManualMode&airflowvalue=80&valueofairextraction=70`)
+    - Tryb Wakacje włącz/wyłącz (`TurnOnHoliday&days=1` oraz `TurnOffHoliday`)
+    - Airing włącz/wyłącz (`TurnOnAiring&time=20` oraz `TurnOffAiring`)
+    - Zasilanie włącz/wyłącz (`TurnOn` oraz `TurnOff`)
+    - Wymiana filtrów (`ReplaceFilters`)
+    - Grzanie włącz/wyłącz (`TurnOnHeating&comforttemperature=22` oraz `TurnOffHeating`)
+    - Bypass (`SetByPassMode&mode=1` otwarty, `mode=0` zamknięty, `mode=2` automatyczny)
+    - GWC (`SetGWCMode&mode=2` auto, `mode=1` włącz, `mode=0` wyłącz)
+- **Wykonanie:**
+  - Utworzono plik [`src/pi1/rekuperacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/rekuperacja.php) z pełną obsługą:
+    1. **Równoległych zapytań `curl_multi`:** Wysyłanie zapytań do 10.0.0.8 i 10.0.0.9 odbywa się w tym samym ułamku sekundy, bez czekania na sekwencyjne zakończenie pierwszego.
+    2. **Ochrony przed zawieszeniem UI:** Krótkie timeouty połączenia (1.5s) zapobiegają blokowaniu serwera Apache w sytuacji, gdy jednostki są wyłączone z sieci.
+    3. **Automatycznego fallbacku CLI:** W razie braku rozszerzenia `php-curl` skrypt automatycznie przełącza się na `/usr/bin/curl` i testy gniazd sieciowych `fsockopen`.
+    4. **Elastycznego API GET/POST oraz cURL CLI:** Obsługa zarówno czytelnych akcji (`action=auto`, `action=slow`, `action=bypass&mode=1`, `action=airing_on&time=20`), jak i bezpośrednich nazw funkcji (`name=AutomaticMode`, `name=TurnOnHeating&comforttemperature=22`).
+    5. **Przełącznika celu (Target Selector):** Domyślne sterowanie oboma rekuperatorami naraz (`target=both`) z możliwością skierowania polecenia do wybranej jednostki (`target=1` dla 10.0.0.8 lub `target=2` dla 10.0.0.9).
+    6. **Interfejsu WWW (Optimistic UI):** Nowoczesny, ciemny design zgodny z systemem PI1/PI2, toasty powiadomień, spinner ładowania, live log konsola ostatnich wywołań oraz ściągawka gotowych komend cURL.
+  - Zaktualizowano belki nawigacyjne multi-server w [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php) oraz [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php), dodając bezpośrednie przejście do Rekuperatorów.
+  - Wdrożono pliki na serwery produkcyjne PI1 (`10.0.0.4:/var/www/`) oraz PI2 (`10.0.0.5:/var/www/`).
+  - Przeprowadzono testy fizyczne: obie jednostki (`10.0.0.8` i `10.0.0.9`) poprawnie odebrały polecenia i zwróciły status HTTP 200 OK w czasie ~65-110 ms.
+
+### Krok 14: Zmiana nazewnictwa z „Rekuperacja” na „Wentylacja”
+- **Polecenie:** Zmiana nazwy panelu i modułu z *rekuperacja* na *wentylacja*.
+- **Wykonanie:**
+  - Utworzono plik [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) z pełną funkcjonalnością sterowania dwoma urządzeniami wentylacyjnymi (`10.0.0.8` i `10.0.0.9`).
+  - W [`src/pi1/rekuperacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/rekuperacja.php) zachowano mostek kompatybilności wstecznej (dołącza `wentylacja.php`), dzięki czemu wcześniejsze wywołania i linki działają bez zakłóceń.
+  - Zaktualizowano etykiety, nagłówki stron (`<h1>Sterowanie Wentylacją</h1>`), opisy jednostek (*Wentylacja 1*, *Wentylacja 2*, *Obie jednostki*), przyciski zasilania (*Włącz wentylację*, *Wyłącz wentylację*) oraz przykłady cURL.
+  - Zaktualizowano zakładki i belki multi-server w [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php) oraz [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
+  - Wdrożono zaktualizowane pliki na serwery produkcyjne PI1 (`10.0.0.4:/var/www/`) oraz PI2 (`10.0.0.5:/var/www/`).
+  - Zweryfikowano działanie zapytań cURL na żywo: `http://10.0.0.4/wentylacja.php?action=auto` oraz przez alias `http://10.0.0.4/rekuperacja.php?action=slow`. Oba zapytania zakończyły się sukcesem w czasie ~50-60 ms.

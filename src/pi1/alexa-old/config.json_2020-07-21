@@ -1,0 +1,110 @@
+{
+  "FAUXMO": {
+    "ip_address": "auto"
+  },
+  "PLUGINS": {
+    "CommandLinePlugin": {
+      "path": "/var/www/alexa/src/fauxmo/plugins/commandlineplugin.py",
+      "DEVICES": [
+        {
+            "name": "one",
+            "port": 45001,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "two",
+            "port": 45002,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "three",
+            "port": 45003,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "four",
+            "port": 45004,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "five",
+            "port": 45005,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=off'",
+            "use_fake_state": true
+        },
+       {
+            "name": "how how",
+            "port": 45006,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw5=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw5=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "a",
+            "port": 45101,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.3/?cm1=8'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.3/?cm1=9'",
+            "use_fake_state": true
+        },
+        {
+            "name": "b",
+            "port": 45102,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw1=off'",
+            "use_fake_state": true
+        },        
+        {
+            "name": "c",
+            "port": 45103,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw54=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw54=off'",
+            "use_fake_state": true
+        }, 
+        {
+            "name": "d",
+            "port": 45104,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw2=off'",
+            "use_fake_state": true
+        }, 
+        {
+            "name": "gate",
+            "port": 45201,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/brama.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/brama.php?sw1=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "garage",
+            "port": 45202,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/brama.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/brama.php?sw2=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "night",
+            "port": 45301,
+            "on_cmd": "sh night.sh>/dev/null 2>&1",
+            "off_cmd": "sh day.sh>/dev/null 2>&1",
+            "use_fake_state": true
+        },
+        {
+            "name": "command with fake state",
+            "port": 45911,
+            "on_cmd": "touch testfile.txt",
+            "off_cmd": "rm testfile.txt",
+            "use_fake_state": true
+        }
+      ]
+    }
+  }
+}

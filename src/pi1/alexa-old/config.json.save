@@ -1,0 +1,122 @@
+{
+  "FAUXMO": {
+    "ip_address": "auto"
+  },
+  "PLUGINS": {
+    "CommandLinePlugin": {
+      "path": "/var/www/alexa/src/fauxmo/plugins/commandlineplugin.py",
+      "DEVICES": [
+        {
+            "name": "one",
+            "port": 49001,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "two",
+            "port": 49002,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "three",
+            "port": 49003,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "four",
+            "port": 49004,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "five",
+            "port": 49005,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "one",
+            "port": 49001,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw1=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "two",
+            "port": 49002,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw4=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "three",
+            "port": 49003,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw2=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "four",
+            "port": 49004,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.5/index.php?sw5=off'",
+            "use_fake_state": true
+        },
+        {
+            "name": "five",
+            "port": 49005,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.4/index.php?sw11=off'",
+            "use_fake_state": true
+        },
+        {:q!
+
+            // Went
+            "name": "a",
+            "port": 49101,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.3/?cm1=8'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.3/?cm1=9'",
+            "use_fake_state": true
+        },
+        {
+            // OBIEG CWU
+            "name": "b",
+            "port": 49102,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw1=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw1=off'",
+            "use_fake_state": true
+        },        
+        {
+            // PIEC GAZ CWU
+            "name": "c",
+            "port": 49103,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw54=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw54=off'",
+            "use_fake_state": true
+        }, 
+        {
+            // POMPA CIEPLA
+            "name": "d",
+            "port": 49104,
+            "on_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw2=on'",
+            "off_cmd": "/usr/bin/curl 'http://10.0.0.2/index.php?sw2=off'",
+            "use_fake_state": true
+        }, 
+        {
+            "name": "command with fake state",
+            "port": 49911,
+            "on_cmd": "touch testfile.txt",
+            "off_cmd": "rm testfile.txt",
+            "use_fake_state": true
+        }
+      ]
+    }
+  }
+}

@@ -177,18 +177,19 @@ function getRoomStatus($roomData) {
 /**
  * Wykonuje skrypt dla pojedynczego przekaźnika
  */
-function runScriptCommand($relay, $action) {
+function runScriptCommand($relay, $action, $time = null) {
     if (!preg_match('/^[a-zA-Z0-9_\-]+$/', $relay)) {
         return ['success' => false, 'error' => 'Błędna nazwa przekaźnika'];
     }
     if (!in_array($action, ['open', 'close', 'stop'])) {
         return ['success' => false, 'error' => 'Błędna akcja'];
     }
+    $timeVal = ($time !== null && is_numeric($time) && (int)$time > 0) ? (int)$time : null;
 
     if (SIMULATION_MODE) {
         $simStateFile = rtrim(GPIO_DIR, '/') . '/' . $relay . '.state';
         @file_put_contents($simStateFile, ($action === 'open' ? '1' : '2'));
-        return ['success' => true, 'output' => "Symulacja: {$relay} -> {$action}"];
+        return ['success' => true, 'output' => "Symulacja: {$relay} -> {$action}" . ($timeVal ? " (czas: {$timeVal}s)" : '')];
     }
 
     $script = SCRIPT_PATH;
@@ -219,12 +220,14 @@ function runScriptCommand($relay, $action) {
             'output' => implode("\n", $output)
         ];
     } else {
-        $cmd = $envPrefix . $sudoPrefix . 'nohup ' . escapeshellcmd($script) . ' ' . escapeshellarg($relay) . ' ' . escapeshellarg($action) . ' > /dev/null 2>&1 &';
+        $timeArg = ($timeVal !== null) ? ' ' . escapeshellarg((string)$timeVal) : '';
+        $cmd = $envPrefix . $sudoPrefix . 'nohup ' . escapeshellcmd($script) . ' ' . escapeshellarg($relay) . ' ' . escapeshellarg($action) . $timeArg . ' > /dev/null 2>&1 &';
         exec($cmd);
 
         return [
             'success' => true,
             'action' => $action,
+            'time' => $timeVal,
             'relay' => $relay,
             'cmd' => $cmd,
             'output' => 'Uruchomiono w tle'
@@ -235,12 +238,21 @@ function runScriptCommand($relay, $action) {
 /**
  * Wykonuje akcję dla pojedynczej pozycji
  */
-function handleRoomAction($roomId, $actionRequested, $allRooms) {
+function handleRoomAction($roomId, $actionRequested, $allRooms, $time = null) {
+    if (!isset($allRooms[$roomId])) {
+        if (strpos($roomId, 'relay_') === 0 && isset($allRooms[substr($roomId, 6)])) {
+            $roomId = substr($roomId, 6);
+        } elseif (isset($allRooms['relay_' . $roomId])) {
+            $roomId = 'relay_' . $roomId;
+        }
+    }
+
     if (!isset($allRooms[$roomId])) {
         return ['success' => false, 'error' => 'Nie znaleziono przekaźnika: ' . htmlspecialchars($roomId)];
     }
 
     $roomData = $allRooms[$roomId];
+    $timeVal = ($time !== null && is_numeric($time) && (int)$time > 0) ? (int)$time : null;
 
     $action = $actionRequested;
     if ($action === 'toggle') {
@@ -252,7 +264,7 @@ function handleRoomAction($roomId, $actionRequested, $allRooms) {
     $allOk = true;
 
     foreach ($roomData['relays'] as $relay) {
-        $res = runScriptCommand($relay, $action);
+        $res = runScriptCommand($relay, $action, $timeVal);
         $results[] = $res;
         if (empty($res['success'])) {
             $allOk = false;
@@ -293,12 +305,14 @@ function handleRoomAction($roomId, $actionRequested, $allRooms) {
     }
 
     $actionName = ($action === 'open' ? 'Otwieranie' : ($action === 'close' ? 'Zamykanie' : 'Zatrzymano'));
+    $timeDesc = ($timeVal !== null && $action !== 'stop') ? " ({$timeVal}s)" : "";
     return [
         'success' => $allOk,
         'action' => $action,
+        'time' => $timeVal,
         'room_id' => $roomId,
         'room_name' => $roomData['name'],
-        'message' => "{$actionName}: {$roomData['name']}",
+        'message' => "{$actionName}{$timeDesc}: {$roomData['name']}",
         'new_status' => $newStatus,
         'results' => $results
     ];
@@ -340,6 +354,10 @@ if (isset($_GET['api']) && $_GET['api'] === 'status') {
     exit;
 }
 
+// Pobranie opcjonalnego parametru czasu (np. ?time=11 lub POST time=11)
+$rawTime = $_GET['time'] ?? $_POST['time'] ?? $_GET['duration'] ?? $_POST['duration'] ?? $_GET['t'] ?? $_POST['t'] ?? null;
+$requestedTime = ($rawTime !== null && is_numeric($rawTime) && (int)$rawTime > 0) ? (int)$rawTime : null;
+
 if (isset($_GET['room']) && isset($_GET['action'])) {
     header('Content-Type: application/json');
     $roomId = $_GET['room'];
@@ -349,17 +367,19 @@ if (isset($_GET['room']) && isset($_GET['action'])) {
     if ($groupTarget !== null) {
         $allSuccess = true;
         foreach ($groupTarget['rooms'] as $rId => $rData) {
-            $r = handleRoomAction($rId, $action, $allRooms);
+            $r = handleRoomAction($rId, $action, $allRooms, $requestedTime);
             if (!$r['success']) $allSuccess = false;
             usleep(50000);
         }
+        $timeMsg = ($requestedTime !== null) ? " ({$requestedTime}s)" : "";
         echo json_encode([
             'success' => $allSuccess,
             'action' => $action,
-            'message' => "Wykonano akcję '{$action}' dla {$groupTarget['desc']}"
+            'time' => $requestedTime,
+            'message' => "Wykonano akcję '{$action}'{$timeMsg} dla {$groupTarget['desc']}"
         ]);
     } else {
-        echo json_encode(handleRoomAction($roomId, $action, $allRooms));
+        echo json_encode(handleRoomAction($roomId, $action, $allRooms, $requestedTime));
     }
     exit;
 }
@@ -379,17 +399,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($groupTarget !== null) {
         $allSuccess = true;
         foreach ($groupTarget['rooms'] as $rId => $rData) {
-            $r = handleRoomAction($rId, $action, $allRooms);
+            $r = handleRoomAction($rId, $action, $allRooms, $requestedTime);
             if (!$r['success']) $allSuccess = false;
             usleep(50000);
         }
+        $timeMsg = ($requestedTime !== null) ? " ({$requestedTime}s)" : "";
         $response = [
             'success' => $allSuccess,
             'action' => $action,
-            'message' => "Wykonano akcję '{$action}' dla {$groupTarget['desc']}"
+            'time' => $requestedTime,
+            'message' => "Wykonano akcję '{$action}'{$timeMsg} dla {$groupTarget['desc']}"
         ];
     } else {
-        $response = handleRoomAction($roomId, $action, $allRooms);
+        $response = handleRoomAction($roomId, $action, $allRooms, $requestedTime);
     }
 
     if ($isAjax) {
@@ -1103,6 +1125,11 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>Cubie: Kotłownia / Wentylacja</span>
                 <span class="badge-ip">10.0.0.2</span>
+            </a>
+            <a href="http://10.0.0.4/wentylacja.php" class="server-nav-link" title="Przejdź do sterowania wentylacją (10.0.0.8, 10.0.0.9) na serwerze PI1">
+                <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+                <span>PI1: Wentylacja (2x)</span>
+                <span class="badge-ip">10.0.0.8 &bull; 10.0.0.9</span>
             </a>
         </div>
     </nav>
