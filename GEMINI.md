@@ -46,6 +46,7 @@ Panel serwera PI1 (**Sterowanie Roletami PI1**) został zorganizowany w 4 czytel
 ### Widoki na serwerze PI1:
 - **Główny ([`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php)):** 10 pozycji z akordeonami rozwijania pojedynczych skrzydeł (przycisk globalny **`Rozwiń szczegóły (4)`**), przyciski grupowe sekcji oraz pełna obsługa AJAX.
 - **Wszystkie przekaźniki ([`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php)):** 16 niezależnych fizycznych przekaźników z osobnymi przyciskami Otwórz/Zamknij i Stop.
+- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI2** (`10.0.0.5`) oraz **Cubie** (`10.0.0.2`).
 - **Zgodność wsteczna z Alexa / skryptami legacy:** zachowano pełną obsługę parametrów GET `?sw1=on`, `?sw2=on`, `?sw3=on`, `?sw101=on` (stop) itd.
 
 ---
@@ -74,6 +75,7 @@ Panel serwera PI2 (**Sterowanie Roletami PI2**) został zorganizowany w układzi
 ### Widoki na serwerze PI2:
 - **Główny ([`src/pi2/index.php`](file:///home/user/home-page/src/pi2/index.php)):** 10 pozycji pokojowych z przyciskiem globalnym **`Rozwiń szczegóły (3)`**.
 - **Wszystkie przekaźniki ([`src/pi2/index_full.php`](file:///home/user/home-page/src/pi2/index_full.php)):** 13 niezależnych wierszy przekaźników.
+- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI1** (`10.0.0.4`) oraz **Cubie** (`10.0.0.2`).
 
 ---
 
@@ -253,3 +255,16 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
   - Pobrano z serwera `10.0.0.5` plik `/var/www/script.sh` przez SCP i zaktualizowano [`src/pi2/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi2/script.sh).
   - Zaktualizowano i wdrożono [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) oraz [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php) na serwer `10.0.0.4:/var/www/`.
   - Ostateczne pomiary obciążenia i czasu ładowania potwierdziły pełną płynność działania: **82 ms** dla PI1 oraz **75 ms** dla PI2.
+
+### Krok 11: Belka nawigacji multi-server (przełączanie PI1, PI2, Cubie)
+- **Polecenie:** Dodanie poniżej nagłówków paneli belki z bezpośrednimi linkami umożliwiającymi szybkie przechodzenie pomiędzy serwerami:
+  - PI1 (`10.0.0.4`),
+  - PI2 (`10.0.0.5`),
+  - Cubie (`10.0.0.2`),
+  z pominięciem linku do serwera, na którym aktualnie znajduje się użytkownik (będąc na PI1 nie wyświetla się link do PI1, itd.).
+- **Wykonanie:**
+  - Dodano responsywną sekcję `<nav class="server-nav">` ze stylizowanymi przyciskami, etykietami funkcji, ikonami SVG oraz plakietkami IP (`.badge-ip`).
+  - Na serwerze **PI1** belka wyświetla przejście do: **PI2** (`10.0.0.5`) oraz **Cubie** (`10.0.0.2`).
+  - Na serwerze **PI2** belka wyświetla przejście do: **PI1** (`10.0.0.4`) oraz **Cubie** (`10.0.0.2`).
+  - Zaktualizowano wszystkie widoki: [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php), [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
+  - Wdrożono pliki na oba serwery produkcyjne (`10.0.0.4` i `10.0.0.5`).
