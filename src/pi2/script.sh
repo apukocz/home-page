@@ -10,7 +10,7 @@ KILL=/bin/kill
 I2CSET=/usr/sbin/i2cset
 
 PCA9685_BUS=1
-RELAY_POWER=23
+RELAY_POWER=535
 RELAY_POWER_FILE=relay_power.state
 
 CONF_FILE_NAME=relay_setup.conf

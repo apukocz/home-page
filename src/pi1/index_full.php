@@ -24,6 +24,47 @@ if ($showExtra && !empty($EXTRA_ROOMS)) {
 // =========================================================================
 
 /**
+ * Pobiera listę aktywnych procesów skryptów script.sh / script_one.sh.
+ * Wynik jest cachowany w pamięci na czas trwania bieżącego żądania PHP.
+ * Bezpośredni odczyt z /proc (błyskawiczny, ~50-80ms na Raspberry Pi 1, 0 forków procesu),
+ * a w razie potrzeby pojedyncze wywołanie ps jako fallback.
+ */
+function getActiveScriptProcesses() {
+    static $cachedProcesses = null;
+    if ($cachedProcesses !== null) {
+        return $cachedProcesses;
+    }
+
+    $cachedProcesses = [];
+
+    // 1. Bezpośredni odczyt z /proc (brak spawn'owania procesów bash/ps/grep)
+    $procFiles = @glob('/proc/[0-9]*/cmdline');
+    if (!empty($procFiles)) {
+        foreach ($procFiles as $cmdFile) {
+            $cmd = @file_get_contents($cmdFile);
+            if ($cmd !== false && (strpos($cmd, 'script.sh') !== false || strpos($cmd, 'script_one.sh') !== false)) {
+                $cachedProcesses[] = str_replace("\0", ' ', $cmd);
+            }
+        }
+        return $cachedProcesses;
+    }
+
+    // 2. Fallback - jedno wywołanie ps na całe żądanie (zamiast kilkudziesięciu osobnych)
+    if (function_exists('shell_exec')) {
+        $output = @shell_exec("ps -eo args 2>/dev/null | grep -E 'script(_one)?\\.sh' | grep -v grep");
+        if ($output) {
+            foreach (explode("\n", trim($output)) as $line) {
+                if (trim($line) !== '') {
+                    $cachedProcesses[] = trim($line);
+                }
+            }
+        }
+    }
+
+    return $cachedProcesses;
+}
+
+/**
  * Sprawdza stan pojedynczego przekaźnika
  */
 function getRelayInfo($relay) {
@@ -33,32 +74,38 @@ function getRelayInfo($relay) {
     $isOpenRunning = false;
     $isCloseRunning = false;
     
-    if (function_exists('shell_exec')) {
-        $checkOpen = @shell_exec("ps -eo args | grep -v grep | grep -E " . escapeshellarg("script(_one)?\\.sh {$relay} open"));
-        $checkClose = @shell_exec("ps -eo args | grep -v grep | grep -E " . escapeshellarg("script(_one)?\\.sh {$relay} close"));
-        $isOpenRunning = !empty(trim((string)$checkOpen));
-        $isCloseRunning = !empty(trim((string)$checkClose));
+    $activeProcesses = getActiveScriptProcesses();
+    if (!empty($activeProcesses)) {
+        foreach ($activeProcesses as $cmd) {
+            if (strpos($cmd, " {$relay} open") !== false) {
+                $isOpenRunning = true;
+                break;
+            } elseif (strpos($cmd, " {$relay} close") !== false) {
+                $isCloseRunning = true;
+                break;
+            }
+        }
     }
 
     if ($isOpenRunning) {
-        return ['state' => 'opening', 'label' => 'Otwieranie...', 'badge' => 'warning', 'is_open' => false];
+        return ['state' => 'opening', 'label' => 'Otwieranie...', 'badge' => 'badge-warning', 'is_open' => false];
     }
     if ($isCloseRunning) {
-        return ['state' => 'closing', 'label' => 'Zamykanie...', 'badge' => 'warning', 'is_open' => true];
+        return ['state' => 'closing', 'label' => 'Zamykanie...', 'badge' => 'badge-warning', 'is_open' => true];
     }
 
     if (file_exists($stateFile) && is_readable($stateFile)) {
         $val = trim(@file_get_contents($stateFile));
         if ($val === '1') {
-            return ['state' => 'open', 'label' => 'Otwarty', 'badge' => 'success', 'is_open' => true];
+            return ['state' => 'open', 'label' => 'Otwarty', 'badge' => 'badge-success', 'is_open' => true];
         } elseif ($val === '2') {
-            return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'secondary', 'is_open' => false];
+            return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'badge-secondary', 'is_open' => false];
         } elseif ($val === '0') {
-            return ['state' => 'moving', 'label' => 'Impuls/Aktywny', 'badge' => 'warning', 'is_open' => true];
+            return ['state' => 'moving', 'label' => 'Impuls/Aktywny', 'badge' => 'badge-warning', 'is_open' => true];
         }
     }
 
-    return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'secondary', 'is_open' => false];
+    return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'badge-secondary', 'is_open' => false];
 }
 
 /**
@@ -198,10 +245,10 @@ function handleRoomAction($roomId, $actionRequested, $allRooms) {
     }
 
     $roomData = $allRooms[$roomId];
-    $status = getRoomStatus($roomData);
 
     $action = $actionRequested;
     if ($action === 'toggle') {
+        $status = getRoomStatus($roomData);
         $action = $status['next_action'];
     }
 
@@ -219,6 +266,36 @@ function handleRoomAction($roomId, $actionRequested, $allRooms) {
         }
     }
 
+    // Natychmiastowe ustalenie nowego statusu bez ponownego skanowania procesów
+    if ($action === 'open') {
+        $newStatus = [
+            'state' => 'opening',
+            'label' => 'Otwieranie...',
+            'badge' => 'badge-warning',
+            'next_action' => 'close',
+            'next_label' => 'Zamknij',
+            'is_moving' => true
+        ];
+    } elseif ($action === 'close') {
+        $newStatus = [
+            'state' => 'closing',
+            'label' => 'Zamykanie...',
+            'badge' => 'badge-warning',
+            'next_action' => 'open',
+            'next_label' => 'Otwórz',
+            'is_moving' => true
+        ];
+    } else {
+        $newStatus = [
+            'state' => 'closed',
+            'label' => 'Zatrzymano',
+            'badge' => 'badge-secondary',
+            'next_action' => 'open',
+            'next_label' => 'Otwórz',
+            'is_moving' => false
+        ];
+    }
+
     $actionName = ($action === 'open' ? 'Otwieranie' : ($action === 'close' ? 'Zamykanie' : 'Zatrzymano'));
     return [
         'success' => $allOk,
@@ -226,7 +303,7 @@ function handleRoomAction($roomId, $actionRequested, $allRooms) {
         'room_id' => $roomId,
         'room_name' => $roomData['name'],
         'message' => "{$actionName}: {$roomData['name']}",
-        'new_status' => getRoomStatus($roomData),
+        'new_status' => $newStatus,
         'results' => $results
     ];
 }
@@ -1245,6 +1322,15 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
         }, 3500);
     }
 
+    // Grupy dla widoku wszystkich przekaźników PI1
+    const GROUP_ROOMS = {
+        'FLOOR_PIETRO_1': ['relay_pietro-1_duzy-pokoj_wschod_lewe', 'relay_pietro-1_duzy-pokoj_wschod_prawe', 'relay_pietro-1_duzy-pokoj_poludnie_lewe', 'relay_pietro-1_duzy-pokoj_poludnie_srodkowe', 'relay_pietro-1_duzy-pokoj_poludnie_prawe', 'relay_pietro-1_duzy-pokoj_zachod_lewe', 'relay_pietro-1_duzy-pokoj_zachod_prawe', 'relay_pietro-1_duzy-pokoj_zachod_balkon'],
+        'FLOOR_PIWNICA': ['relay_piwnica_kuchnia_lewe', 'relay_piwnica_kuchnia_prawe', 'relay_piwnica_prasowalnia', 'relay_piwnica_skladzik', 'relay_piwnica_wejscie'],
+        'FLOOR_DACH': ['relay_pietro-3_dach'],
+        'FLOOR_BRAMY': ['relay_brama_wjazd', 'relay_brama_garaz'],
+        'ALL': ['relay_pietro-1_duzy-pokoj_wschod_lewe', 'relay_pietro-1_duzy-pokoj_wschod_prawe', 'relay_pietro-1_duzy-pokoj_poludnie_lewe', 'relay_pietro-1_duzy-pokoj_poludnie_srodkowe', 'relay_pietro-1_duzy-pokoj_poludnie_prawe', 'relay_pietro-1_duzy-pokoj_zachod_lewe', 'relay_pietro-1_duzy-pokoj_zachod_prawe', 'relay_pietro-1_duzy-pokoj_zachod_balkon', 'relay_piwnica_kuchnia_lewe', 'relay_piwnica_kuchnia_prawe', 'relay_piwnica_prasowalnia', 'relay_piwnica_skladzik', 'relay_piwnica_wejscie', 'relay_pietro-3_dach', 'relay_brama_wjazd', 'relay_brama_garaz']
+    };
+
     async function handleFormSubmit(event, roomId, action) {
         event.preventDefault();
         await triggerAction(roomId, action);
@@ -1255,8 +1341,51 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
         const btnToggle = document.getElementById(`btn-toggle-${roomId}`);
         const btnStop = document.getElementById(`btn-stop-${roomId}`);
 
-        if (roomId !== 'ALL' && btnToggle) btnToggle.disabled = true;
-        if (roomId !== 'ALL' && btnStop) btnStop.disabled = true;
+        // 1. NATYCHMIASTOWA REAKCJA UI (0 ms) - OPTIMISTIC UPDATE
+        let effectiveAction = action;
+        if (action === 'toggle') {
+            effectiveAction = (btnToggle && btnToggle.classList.contains('mode-close')) ? 'close' : 'open';
+        }
+
+        let optStatus = null;
+        if (effectiveAction === 'open') {
+            optStatus = {
+                state: 'opening',
+                label: 'Otwieranie...',
+                badge: 'badge-warning',
+                next_action: 'close',
+                next_label: 'Zamknij',
+                is_moving: true
+            };
+        } else if (effectiveAction === 'close') {
+            optStatus = {
+                state: 'closing',
+                label: 'Zamykanie...',
+                badge: 'badge-warning',
+                next_action: 'open',
+                next_label: 'Otwórz',
+                is_moving: true
+            };
+        } else if (effectiveAction === 'stop') {
+            optStatus = {
+                state: 'closed',
+                label: 'Zatrzymano',
+                badge: 'badge-secondary',
+                next_action: 'open',
+                next_label: 'Otwórz',
+                is_moving: false
+            };
+        }
+
+        if (optStatus) {
+            if (GROUP_ROOMS[roomId]) {
+                GROUP_ROOMS[roomId].forEach(id => updateRoomUI(id, optStatus));
+            } else {
+                updateRoomUI(roomId, optStatus);
+            }
+        }
+
+        if (btnStop) btnStop.disabled = false;
 
         try {
             const formData = new FormData();
@@ -1274,19 +1403,19 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
 
             if (data.success) {
                 showToast(data.message || 'Polecenie wysłane pomyślnie', 'success');
-                if (data.new_status && roomId !== 'ALL') {
+                if (data.new_status && roomId !== 'ALL' && !GROUP_ROOMS[roomId]) {
                     updateRoomUI(roomId, data.new_status);
                 }
             } else {
                 showToast(data.error || 'Wystąpił błąd podczas wykonywania polecenia', 'danger');
+                pollStatus();
             }
         } catch (err) {
             console.error('Błąd połączenia:', err);
             showToast('Błąd połączenia z serwerem Apache: ' + err.message, 'danger');
+            pollStatus();
         } finally {
-            if (roomId !== 'ALL' && btnToggle) btnToggle.disabled = false;
-            if (roomId !== 'ALL' && btnStop) btnStop.disabled = false;
-            setTimeout(pollStatus, 800);
+            setTimeout(pollStatus, 1500);
         }
     }
 
@@ -1298,7 +1427,8 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
 
         if (!badge || !btnToggle) return;
 
-        badge.className = `badge ${st.badge}`;
+        const badgeClass = st.badge.startsWith('badge-') ? st.badge : `badge-${st.badge}`;
+        badge.className = `badge ${badgeClass}`;
         const badgeText = badge.querySelector('.badge-text');
         if (badgeText) badgeText.textContent = st.label;
 
@@ -1328,7 +1458,10 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
         }
     }
 
+    let isPolling = false;
     async function pollStatus() {
+        if (isPolling) return;
+        isPolling = true;
         try {
             const res = await fetch('index_full.php?api=status');
             if (!res.ok) return;
@@ -1340,10 +1473,12 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             }
         } catch (e) {
             // Cichy błąd pollingu
+        } finally {
+            isPolling = false;
         }
     }
 
-    setInterval(pollStatus, 2500);
+    setInterval(pollStatus, 3000);
 </script>
 </body>
 </html>

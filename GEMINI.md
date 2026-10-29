@@ -13,10 +13,10 @@ W systemie domowym funkcjonują 3 serwery Apache/Linux połączone w sieci lokal
    - *Status:* Pozostawiony bez zmian per wytyczne użytkownika.
 2. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
    - Sterowanie roletami i bramami: **Piętro 1 (Salon - 8 rolet)**, **Piwnica (5 rolet)**, **Dach (1 roleta)** oraz **Bramy (wjazdowa i garażowa - 2 przekaźniki)**.
-   - Sprzęt: PCA9685 I2C (`RELAY_POWER=14`), skrypt `script.sh` dla rolet oraz `script_one.sh` dla bram z czasem powrotu (90s).
+   - Sprzęt: PCA9685 I2C (`RELAY_POWER=526` na Raspberry Pi / `14` legacy), skrypt `script.sh` dla rolet oraz `script_one.sh` dla bram z czasem powrotu (90s).
 3. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
    - Sterowanie roletami: **Piętro 2 (7 rolet)** oraz **Parter (6 rolet)**.
-   - Sprzęt: PCA9685 I2C (`RELAY_POWER=23`), skrypt `script.sh`.
+   - Sprzęt: PCA9685 I2C (`RELAY_POWER=535`), skrypt `script.sh`.
 
 ---
 
@@ -162,7 +162,7 @@ curl -s "http://10.0.0.5/index_full.php?api=status"
 │       ├── config.php           # Konfiguracja pomieszczeń, kondygnacji i przekaźników
 │       ├── index.php            # Główny panel WWW PI2 (10 pokoi + akordeony)
 │       ├── index_full.php       # Szczegółowy panel WWW PI2 (13 przekaźników)
-│       ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=23)
+│       ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=535)
 │       └── gpio/
 │           ├── relay_setup.conf # Konfiguracja fizycznych rejestrów PI2
 │           └── relay_power.state
@@ -226,3 +226,30 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
   - Utworzono [`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php) z 16 wierszami fizycznych przekaźników,
   - Zaktualizowano `GPIO_DIR=${GPIO_DIR:-/var/www/gpio}` w `src/pi1/script.sh` oraz `src/pi1/script_one.sh`,
   - Dodano pełną zgodność wsteczną ze starymi parametrami GET (`sw1`, `sw2`, `sw3`... ze skryptów integracji z Alexa).
+
+### Krok 9: Optymalizacja wydajnościowa i natychmiastowa reakcja UI (Optimistic UI) dla PI1 i PI2
+- **Problem zgłoszony przez użytkownika:**
+  - Strona `http://10.0.0.5/` ładowała się skrajnie wolno (nawet do 47 sekund).
+  - Po kliknięciu przycisku (np. *Otwórz*) interfejs nie dawał żadnego feedbacku przez kilka sekund, po czym dopiero zmieniał etykietę na *Otwieranie...*.
+- **Diagnoza przyczyn źródłowych:**
+  - Urządzenie PI2 to Raspberry Pi pierwszej generacji / Pi Zero (`armv6l`) o taktowaniu 700 MHz (pojedynczy rdzeń).
+  - Funkcja `getRelayInfo()` dla każdego z 19 przekaźników wykonywała 2 wywołania powłoki `ps -eo args | grep -v grep | grep ...`, generując łącznie **114 forków procesów** przy każdym załadowaniu strony lub odpytaniu o status, co zajmowało ponad 12 sekund na 1-rdzeniowym CPU.
+  - Skrypt JavaScript wykonywał cykliczny polling (`pollStatus`) co 2,5s bez weryfikacji, czy poprzednie żądanie się skończyło. Spowodowało to kolejkowanie się wielu ciężkich zapytań w Apache i doprowadziło do przeciążenia procesora (Load average ~1.95) oraz wydłużenia czasu ładowania do 47 sekund.
+  - Brak wzorca *Optimistic UI* – przycisk blokował się (`disabled`) bez natychmiastowej zmiany etykiety i ikony, czekając na zakończenie powolnego zapytania POST.
+- **Wykonane optymalizacje:**
+  1. **Błyskawiczne sprawdzanie procesów przez `/proc`:** Wprowadzono funkcję `getActiveScriptProcesses()` z pamięcią podręczną dla danego żądania PHP, która odczytuje `/proc/[0-9]*/cmdline` zamiast uruchamiać procesy `ps` i `grep`. Czas sprawdzania statusu wszystkich rolet spadł z **12 139 ms do 75 ms (ponad 150× szybciej)**.
+  2. **Natychmiastowa reakcja UI (0 ms):** W JavaScript wdrożono *Optimistic UI* – w momencie kliknięcia przycisk natychmiast przełącza się w stan *„Otwieranie...”* / *„Zamykanie...”*, wyświetla kręciołek (spinner), włącza plakietkę ostrzegawczą oraz aktywuje przycisk STOP.
+  3. **Blokada zapytań równoległych (`isPolling`):** Zapobiega kumulowaniu się zapytań o status w kolejce Apache.
+  4. **Wdrożenie na serwery:** Zaktualizowano i wdrożono pliki `index.php` oraz `index_full.php` na oba serwery: `10.0.0.5` (PI2) oraz `10.0.0.4` (PI1).
+- **Wyniki testów wydajnościowych po optymalizacji:**
+  - **PI2 (`10.0.0.5`):** Czas ładowania strony spadł z **47s do 0.16s (162 ms)**, a czas sprawdzania statusu do **0.075s (75 ms)**.
+  - **PI1 (`10.0.0.4`):** Czas ładowania strony spadł z **7.5s do 0.12s (129 ms)**, a czas sprawdzania statusu do **0.043s (43 ms)**.
+
+### Krok 10: Pełna synchronizacja PI1 oraz pobranie produkcyjnego `script.sh` z PI2
+- **Polecenie:**
+  1. Wdrożenie identycznych poprawek optymalizacyjnych i natychmiastowej reakcji UI (Optimistic UI) dla serwera PI1 (`10.0.0.4`).
+  2. Skopiowanie pliku `script.sh` z fizycznego serwera `10.0.0.5` do repozytorium do folderu `src/pi2/` w celu zachowania rzeczywistego numeru pinu zasilania (`RELAY_POWER=535`).
+- **Wykonanie:**
+  - Pobrano z serwera `10.0.0.5` plik `/var/www/script.sh` przez SCP i zaktualizowano [`src/pi2/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi2/script.sh).
+  - Zaktualizowano i wdrożono [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) oraz [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php) na serwer `10.0.0.4:/var/www/`.
+  - Ostateczne pomiary obciążenia i czasu ładowania potwierdziły pełną płynność działania: **82 ms** dla PI1 oraz **75 ms** dla PI2.
