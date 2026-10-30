@@ -84,10 +84,10 @@ chmod 755 /sys/class/gpio/gpio526
 chmod 755 /sys/class/gpio/gpio527
 chmod 755 /sys/class/gpio/gpio530
 chmod 755 /sys/class/gpio/gpio535
-chmod 755 /sys/class/gpio/gpio526/value
-chmod 755 /sys/class/gpio/gpio527/value
-chmod 755 /sys/class/gpio/gpio530/value
-chmod 755 /sys/class/gpio/gpio535/value
+chmod 666 /sys/class/gpio/gpio526/value
+chmod 666 /sys/class/gpio/gpio527/value
+chmod 666 /sys/class/gpio/gpio530/value
+chmod 666 /sys/class/gpio/gpio535/value
     ;;
   stop)
     echo "No Stopping "

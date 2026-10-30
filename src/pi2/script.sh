@@ -48,7 +48,6 @@ else
 
 fi
 
-echo "aaaaaaaaaa: ${CONF_TIME}"
 
 #----
 # i2c Setup

@@ -49,24 +49,24 @@ ${I2CSET} -y 1 0x42 254 101
 ${I2CSET} -y 1 0x42 0 0x00
 
 # restart
-${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} 0x01 0x91
-${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} 0x01 0x91
+#${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} 0x01 0x91
+#${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} 0x01 0x91
 
 # set output logic as inverted
 ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} 0x01 0x10
 ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} 0x01 0x10
 
 # change to normal mode
-${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} 0x01 0x01
-${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} 0x01 0x01
+#${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} 0x01 0x01
+#${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} 0x01 0x01
 
 # set perm
 chmod 777 /dev/i2c-1
 chmod 755 /sys/class/gpio
 chmod 755 /sys/class/gpio/gpio535
 chmod 755 /sys/class/gpio/gpio536
-chmod 755 /sys/class/gpio/gpio535/value
-chmod 755 /sys/class/gpio/gpio536/value
+chmod 666 /sys/class/gpio/gpio535/value
+chmod 666 /sys/class/gpio/gpio536/value
 
     ;;
   stop)
