@@ -158,6 +158,18 @@ Dedykowany panel dostępny pod adresem: `http://10.0.0.4/wentylacja.php` (oraz k
 Sterowanie wysyła zapytania równolegle (`curl_multi`) do obu jednostek jednocześnie (domyślnie `target=both`), z opcją wyboru pojedynczego urządzenia (`target=1` lub `target=2`).
 
 ```bash
+# 0. Odczyt aktualnych parametrów pracy i temperatur (GetTemperatures):
+curl -s "http://10.0.0.4/wentylacja.php?api=temperatures"
+curl -s "http://10.0.0.4/wentylacja.php?action=get_temperatures"
+
+# Odpytanie o temperatury wybranej jednostki:
+curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=1"   # tylko Wentylacja 1 (10.0.0.8)
+curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=2"   # tylko Wentylacja 2 (10.0.0.9)
+
+# Bezpośrednie zapytanie cURL do pojedynczego urządzenia:
+/usr/bin/curl 'http://10.0.0.8/API/RunFunction?name=GetTemperatures'
+/usr/bin/curl 'http://10.0.0.9/API/RunFunction?name=GetTemperatures'
+
 # 1. Zasilanie (TurnOn / TurnOff)
 curl -s "http://10.0.0.4/wentylacja.php?action=turn_on"
 curl -s "http://10.0.0.4/wentylacja.php?action=turn_off"
@@ -382,3 +394,67 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
   - Zaktualizowano zakładki i belki multi-server w [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php) oraz [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
   - Wdrożono zaktualizowane pliki na serwery produkcyjne PI1 (`10.0.0.4:/var/www/`) oraz PI2 (`10.0.0.5:/var/www/`).
   - Zweryfikowano działanie zapytań cURL na żywo: `http://10.0.0.4/wentylacja.php?action=auto` oraz przez alias `http://10.0.0.4/rekuperacja.php?action=slow`. Oba zapytania zakończyły się sukcesem w czasie ~50-60 ms.
+
+### Krok 15: Wyświetlanie aktualnych parametrów pracy i temperatur urządzeń wentylacji (GetTemperatures)
+- **Polecenie:** Dodanie do strony wentylacji (`wentylacja.php`) wyświetlania bieżących parametrów pracy urządzeń, pobieranych przez zapytania API:
+  - `/usr/bin/curl 'http://10.0.0.8/API/RunFunction?name=GetTemperatures'`
+  - `/usr/bin/curl 'http://10.0.0.9/API/RunFunction?name=GetTemperatures'`
+  oraz przetłumaczenie i przypisanie zwracanych wartości:
+  - `Intake`: Zewnątrz
+  - `Launcher`: Usuwanie (wyrzutnia)
+  - `Supply`: Nawiew
+  - `Extract`: Wywiew
+  - `HeaterCooler`: Nagrzewnica
+  - `HeaterCoolerActive`: 1 (Włączona) / 0 (Wyłączona)
+  - `GWC`: GWC
+  - `GWCActive`: 1 (Włączone) / 0 (Wyłączone)
+  - `Room`: Pokój (oraz `RoomTempActive`)
+  - `Additional`: Dodatkowa (oraz `AdditionalTempActive`)
+- **Wykonanie:**
+  - W backendzie [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) zaimplementowano funkcję `getRecuperatorTemperatures($target)` odpytującą równolegle obie jednostki (`curl_multi`) z automatycznym parsowaniem i tłumaczeniem pól JSON.
+  - Dodano dedykowany endpoint API `api=temperatures` oraz obsługę akcji `action=get_temperatures`.
+  - Zaprojektowano nowoczesny interfejs dashboardu w panelu WWW z podziałem na:
+    1. **4 główne temperatury pętli wentylacji (tor powietrza):** Zewnątrz (`Intake`), Nawiew (`Supply`), Wywiew (`Extract`), Usuwanie (`Launcher`) z kolorystycznymi akcentami i czytelnymi kafelkami.
+    2. **Podzespoły i czujniki:** Nagrzewnica (`HeaterCooler` + status włączona/wyłączona), GWC (`GWC` + status włączone/wyłączone), Pokój (`Room`) oraz Dodatkowa (`Additional`).
+  - Wdrożono asynchroniczne odświeżanie parametrów w JavaScript (`refreshTemperatures`):
+    - Automatyczne pobranie parametrów przy wejściu na stronę (`DOMContentLoaded`).
+    - Dedykowany przycisk **`Odśwież parametry`** z animacją ładowania.
+    - Automatyczne cykliczne odświeżanie w tle (co 30 sekund).
+    - Odświeżanie po wykonaniu dowolnego polecenia (z opóźnieniem 1.2s dla natychmiastowego podejrzenia efektu).
+  - Usunięto zduplikowany fragment kodu w sekcji skryptów.
+  - Zaktualizowano przykłady wywołań cURL w sekcji pomocy.
+  - Wdrożono zaktualizowany plik na fizyczny serwer PI1 (`10.0.0.4:/var/www/wentylacja.php`).
+  - Przetestowano na żywo zapytania API – obie jednostki zwracają komplet parametrów w czasie ~80-120 ms.
+
+### Krok 16: Uproszczenie widoku parametrów i skrócone statusy Wł / Wył
+- **Polecenie:**
+  1. Usunięcie z widoku pól *Pokój* oraz *Dodatkowa*.
+  2. Zmiana etykiet stanu dla *Nagrzewnicy* i *GWC* na skrócone: **Wł** (zamiast Włączona/Włączone) oraz **Wył** (zamiast Wyłączona/Wyłączone).
+- **Wykonanie:**
+  - Zaktualizowano strukturę HTML w [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php), pozostawiając w wierszu podzespołów wyłącznie Nagrzewnicę oraz GWC w czytelnym, symetrycznym układzie dwukolumnowym.
+  - Zaktualizowano logikę JavaScript w funkcji `updateDeviceCard`, ustawiając plakietki na **`Wł`** (aktywne) oraz **`Wył`** (nieaktywne) dla obu komponentów.
+  - Wdrożono zaktualizowany plik na serwer produkcyjny PI1 (`10.0.0.4:/var/www/wentylacja.php`) i zweryfikowano poprawność renderowania w przeglądarce.
+
+### Krok 17: Zmiana kolejności sekcji w panelu wentylacji
+- **Polecenie:**
+  - Przesunięcie bloku *Zasilanie Jednostek* bezpośrednio nad *Filtry i Serwis*.
+  - Przesunięcie bloku *Tryb Wakacje* bezpośrednio nad *Zasilanie Jednostek*.
+  - Przesunięcie bloku *Ogrzewanie* bezpośrednio nad *Tryb Wakacje*.
+- **Wykonanie:**
+  - Przeorganizowano sekcje w [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) w kolejności:
+    1. *Aktualne Parametry Pracy Urządzeń* (temperatury i komponenty),
+    2. *Tryby Wentylacji (Przepływ Powietrza)*,
+    3. *Przewietrzanie (Airing)*,
+    4. *Bypass (Obejście Wymiennika)*,
+    5. *GWC (Gruntowy Wymiennik Ciepła)*,
+    6. *Ogrzewanie / Nagrzewnica (Heating)*,
+    7. *Tryb Wakacje (Holiday)*,
+    8. *Zasilanie Jednostek (TurnOn / TurnOff)*,
+    9. *Filtry i Serwis (ReplaceFilters)*.
+  - Zsynchronizowano plik z serwerem produkcyjnym PI1 (`10.0.0.4:/var/www/wentylacja.php`).
+
+### Krok 18: Usunięcie sekcji przykładów wywołań cURL z widoku panelu
+- **Polecenie:** Usunięcie z widoku strony `wentylacja.php` bloku *„Przykłady Wywołań cURL z Konsoli / Home Assistant / Skryptów Bash:”*.
+- **Wykonanie:**
+  - Usunięto kontener `.curl-box` oraz powiązane style CSS ze strony [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) (pełna dokumentacja cURL pozostaje w niniejszym dokumencie [`GEMINI.md`](file:///mnt/z/Vagrant/home-page/GEMINI.md)).
+  - Zsynchronizowano plik z serwerem produkcyjnym PI1 (`10.0.0.4:/var/www/wentylacja.php`).

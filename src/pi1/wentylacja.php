@@ -121,6 +121,14 @@ function callRecuperatorApi($functionName, $queryParams = [], $target = 'both') 
                 $humanError = "Odpowiedź HTTP {$httpCode}";
             }
 
+            $parsedData = null;
+            if ($isOk && !empty($content)) {
+                $decoded = json_decode($content, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $parsedData = $decoded;
+                }
+            }
+
             $results[$ip] = [
                 'ip' => $ip,
                 'name' => $dev['name'],
@@ -130,6 +138,7 @@ function callRecuperatorApi($functionName, $queryParams = [], $target = 'both') 
                 'error' => $humanError,
                 'errno' => $errNo,
                 'response' => $content,
+                'data' => $parsedData,
                 'time_sec' => round($totalTime, 3)
             ];
 
@@ -173,6 +182,14 @@ function callRecuperatorApi($functionName, $queryParams = [], $target = 'both') 
                 $humanError = ($httpCode === 0) ? 'Brak połączenia (urządzenie wyłączone)' : "Odpowiedź HTTP {$httpCode}";
             }
 
+            $parsedData = null;
+            if ($isOk && !empty($body)) {
+                $decoded = json_decode($body, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $parsedData = $decoded;
+                }
+            }
+
             $results[$ip] = [
                 'ip' => $ip,
                 'name' => $dev['name'],
@@ -182,6 +199,7 @@ function callRecuperatorApi($functionName, $queryParams = [], $target = 'both') 
                 'error' => $humanError,
                 'errno' => $isOk ? 0 : ($httpCode === 0 ? 7 : 0),
                 'response' => $body,
+                'data' => $parsedData,
                 'time_sec' => $duration
             ];
         }
@@ -296,6 +314,99 @@ function checkRecuperatorConnection($target = 'both') {
     return $statuses;
 }
 
+/**
+ * Pobiera i tłumaczy aktualne parametry pracy oraz temperatury z urządzeń wentylacji
+ * 
+ * Zapytanie API do urządzeń:
+ * /API/RunFunction?name=GetTemperatures
+ *
+ * Mapowanie i tłumaczenie parametrów:
+ * - Intake: Zewnątrz (czerpnia)
+ * - Launcher: Usuwanie (wyrzutnia)
+ * - Supply: Nawiew (do pomieszczeń)
+ * - Extract: Wywiew (z pomieszczeń)
+ * - HeaterCooler: Nagrzewnica
+ * - HeaterCoolerActive: Nagrzewnica włączona (1) / wyłączona (0)
+ * - GWC: GWC (gruntowy wymiennik ciepła)
+ * - GWCActive: GWC włączone (1) / wyłączone (0)
+ * - Room: Pokój
+ * - RoomTempActive: Temp. pokoju aktywna (1) / nieaktywna (0)
+ * - Additional: Dodatkowa
+ * - AdditionalTempActive: Temp. dodatkowa aktywna (1) / nieaktywna (0)
+ *
+ * @param string $target 'both' (domyślnie), '1' (10.0.0.8), '2' (10.0.0.9)
+ * @return array
+ */
+function getRecuperatorTemperatures($target = 'both') {
+    $apiResult = callRecuperatorApi('GetTemperatures', [], $target);
+    $devices = [];
+    $allOk = true;
+    $anyOk = false;
+
+    foreach ($apiResult['results'] as $ip => $item) {
+        $raw = $item['data'] ?? null;
+        if ($raw === null && !empty($item['response'])) {
+            $raw = json_decode($item['response'], true);
+        }
+
+        $isValid = is_array($raw) && (!isset($raw['GetTemperaturesResult']) || $raw['GetTemperaturesResult'] === true);
+        $isSuccess = $item['success'] && $isValid;
+
+        if ($isSuccess) {
+            $anyOk = true;
+        } else {
+            $allOk = false;
+        }
+
+        $params = null;
+        if ($isValid) {
+            $params = [
+                'intake' => isset($raw['Intake']) ? round((float)$raw['Intake'], 1) : null,
+                'intake_label' => 'Zewnątrz',
+                'launcher' => isset($raw['Launcher']) ? round((float)$raw['Launcher'], 1) : null,
+                'launcher_label' => 'Usuwanie',
+                'supply' => isset($raw['Supply']) ? round((float)$raw['Supply'], 1) : null,
+                'supply_label' => 'Nawiew',
+                'extract' => isset($raw['Extract']) ? round((float)$raw['Extract'], 1) : null,
+                'extract_label' => 'Wywiew',
+                'heater_cooler' => isset($raw['HeaterCooler']) ? round((float)$raw['HeaterCooler'], 1) : null,
+                'heater_cooler_active' => !empty($raw['HeaterCoolerActive']) ? 1 : 0,
+                'heater_cooler_label' => 'Nagrzewnica',
+                'gwc' => isset($raw['GWC']) ? round((float)$raw['GWC'], 1) : null,
+                'gwc_active' => !empty($raw['GWCActive']) ? 1 : 0,
+                'gwc_label' => 'GWC',
+                'room' => isset($raw['Room']) ? round((float)$raw['Room'], 1) : null,
+                'room_active' => !empty($raw['RoomTempActive']) ? 1 : 0,
+                'room_label' => 'Pokój',
+                'additional' => isset($raw['Additional']) ? round((float)$raw['Additional'], 1) : null,
+                'additional_active' => !empty($raw['AdditionalTempActive']) ? 1 : 0,
+                'additional_label' => 'Dodatkowa'
+            ];
+        }
+
+        $devices[$ip] = [
+            'ip' => $ip,
+            'name' => $item['name'],
+            'online' => $item['success'],
+            'success' => $isSuccess,
+            'http_code' => $item['http_code'] ?? 0,
+            'latency_ms' => round(($item['time_sec'] ?? 0) * 1000),
+            'time_sec' => $item['time_sec'] ?? 0,
+            'error' => $item['error'] ?? ($isValid ? null : 'Błąd odczytu danych z rekuperatora'),
+            'parameters' => $params,
+            'raw' => $raw
+        ];
+    }
+
+    return [
+        'success' => $allOk,
+        'any_success' => $anyOk,
+        'timestamp' => date('Y-m-d H:i:s'),
+        'target' => $target,
+        'devices' => $devices
+    ];
+}
+
 // =========================================================================
 // Obsługa poleceń (API JSON / POST / GET)
 // =========================================================================
@@ -303,6 +414,16 @@ function checkRecuperatorConnection($target = 'both') {
 $requestedAction = $_POST['action'] ?? $_GET['action'] ?? null;
 $requestedName = $_POST['name'] ?? $_GET['name'] ?? null;
 $requestedTarget = $_POST['target'] ?? $_GET['target'] ?? 'both';
+
+// Sprawdzenie czy żądanie to odpytanie o temperatury / parametry pracy
+if ((isset($_GET['api']) && in_array(strtolower($_GET['api']), ['temperatures', 'temp', 'temps', 'gettemperatures'], true))
+    || $requestedAction === 'get_temperatures'
+    || $requestedAction === 'temperatures') {
+    header('Content-Type: application/json; charset=utf-8');
+    $temps = getRecuperatorTemperatures($requestedTarget);
+    echo json_encode($temps, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 // Sprawdzenie czy żądanie to odpytanie o status połączenia
 if ((isset($_GET['api']) && $_GET['api'] === 'status') || $requestedAction === 'status') {
@@ -491,6 +612,13 @@ if ($requestedAction !== null || $requestedName !== null) {
             case 'replace_filters':
                 $functionName = 'ReplaceFilters';
                 $humanDesc = 'Wymiana filtrów (Reset licznika)';
+                break;
+
+            // Odczyt parametrów pracy i temperatur
+            case 'get_temperatures':
+            case 'temperatures':
+                $functionName = 'GetTemperatures';
+                $humanDesc = 'Pobranie temperatur i parametrów pracy';
                 break;
 
             default:
@@ -814,53 +942,266 @@ if ($requestedAction !== null || $requestedName !== null) {
             display: none;
         }
 
-        /* Karty statusu urządzeń */
-        .devices-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-
-        .device-card {
+        /* Karty statusu urządzeń i dashboard parametrów */
+        .params-section {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-lg);
-            padding: 14px 18px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            padding: 18px 20px;
+            margin-bottom: 20px;
             box-shadow: var(--shadow);
         }
 
-        .device-info {
+        .params-header-actions {
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: wrap;
         }
 
-        .device-icon {
+        .last-update-time {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        .devices-dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+            gap: 16px;
+            margin-top: 14px;
+        }
+
+        .device-card-large {
+            background: #141c2c;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+            transition: all 0.2s ease;
+        }
+
+        .device-card-large:hover {
+            border-color: #3b82f6;
+        }
+
+        .dev-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            padding-bottom: 12px;
+        }
+
+        .dev-info-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .dev-badge-icon {
             width: 38px;
             height: 38px;
             border-radius: 10px;
-            background: #28374d;
+            background: #1e293b;
             display: flex;
             align-items: center;
             justify-content: center;
             color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
             flex-shrink: 0;
         }
 
-        .device-name {
-            font-weight: 700;
-            font-size: 0.95rem;
-            color: #f1f5f9;
+        .dev-badge-icon svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 2;
         }
 
-        .device-ip {
-            font-size: 0.78rem;
-            color: var(--text-muted);
+        .dev-title-text {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dev-ip-tag {
+            font-size: 0.76rem;
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.15);
+            padding: 2px 7px;
+            border-radius: 4px;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        .dev-subtitle-text {
+            font-size: 0.76rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* 4 główne temperatury w pętli wentylacji */
+        .temps-grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .temp-box {
+            background: #0d1424;
+            border: 1px solid rgba(51, 65, 85, 0.7);
+            border-radius: 8px;
+            padding: 10px 8px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 86px;
+            transition: all 0.2s ease;
+        }
+
+        .temp-box:hover {
+            background: #111a2f;
+            transform: translateY(-2px);
+        }
+
+        .temp-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+        }
+
+        /* Akcenty kolorystyczne dla toru powietrza */
+        .temp-box.box-intake::before { background: #38bdf8; }     /* Zewnątrz - błękitny */
+        .temp-box.box-supply::before { background: #10b981; }     /* Nawiew - zielony */
+        .temp-box.box-extract::before { background: #f59e0b; }    /* Wywiew - pomarańczowy */
+        .temp-box.box-launcher::before { background: #818cf8; }   /* Usuwanie - indygo */
+
+        .temp-box-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .temp-box-val {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 4px 0;
+            font-variant-numeric: tabular-nums;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+
+        .temp-box-val small {
+            font-size: 0.78rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        .temp-box-sub {
+            font-size: 0.68rem;
+            color: #64748b;
+        }
+
+        /* Podzespoły i czujniki (Nagrzewnica, GWC, Pokój, Dodatkowa) */
+        .components-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .comp-card {
+            background: #0d1424;
+            border: 1px solid rgba(51, 65, 85, 0.5);
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .comp-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .comp-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            background: rgba(30, 41, 59, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+
+        .comp-icon svg {
+            width: 15px;
+            height: 15px;
+            stroke-width: 2;
+        }
+
+        .comp-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        .comp-temp {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #ffffff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        .comp-status-badge {
+            font-size: 0.68rem;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+
+        .comp-status-on {
+            background: rgba(16, 185, 129, 0.18);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+
+        .comp-status-warn {
+            background: rgba(245, 158, 11, 0.18);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+        }
+
+        .comp-status-off {
+            background: rgba(148, 163, 184, 0.1);
+            color: #64748b;
+            border: 1px solid rgba(148, 163, 184, 0.2);
         }
 
         .badge {
@@ -1128,38 +1469,6 @@ if ($requestedAction !== null || $requestedName !== null) {
         .log-err { color: #f87171; }
         .log-url { color: #93c5fd; }
 
-        /* Ściągawka cURL */
-        .curl-box {
-            background: #111827;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: 16px 20px;
-            margin-top: 20px;
-        }
-
-        .curl-title {
-            font-size: 0.92rem;
-            font-weight: 700;
-            color: #e2e8f0;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .curl-code {
-            background: #030712;
-            border: 1px solid #1f2937;
-            border-radius: 6px;
-            padding: 10px 14px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: 0.78rem;
-            color: #a5f3fc;
-            overflow-x: auto;
-            white-space: pre;
-            line-height: 1.5;
-        }
-
         /* Responsywność */
         @media (max-width: 640px) {
             body { padding: 10px 8px 40px 8px; }
@@ -1257,63 +1566,187 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- Karty statusu urządzeń -->
-    <div class="devices-grid">
-        <div class="device-card" id="card_dev_1">
-            <div class="device-info">
-                <div class="device-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
-                </div>
-                <div>
-                    <div class="device-name">Wentylacja 1</div>
-                    <div class="device-ip">10.0.0.8</div>
-                </div>
-            </div>
-            <div>
-                <span class="badge badge-secondary" id="badge_status_1">Gotowy</span>
-            </div>
-        </div>
-
-        <div class="device-card" id="card_dev_2">
-            <div class="device-info">
-                <div class="device-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
-                </div>
-                <div>
-                    <div class="device-name">Wentylacja 2</div>
-                    <div class="device-ip">10.0.0.9</div>
-                </div>
-            </div>
-            <div>
-                <span class="badge badge-secondary" id="badge_status_2">Gotowy</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- 1. ZASILANIE -->
-    <div class="control-section">
+    <!-- KARTY AKTUALNYCH PARAMETRÓW PRACY URZĄDZEŃ -->
+    <div class="control-section params-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
-                    Zasilanie Jednostek
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+                    Aktualne Parametry Pracy Urządzeń
                 </div>
-                <div class="section-desc">Główne włączenie lub wyłączenie wentylatorów (TurnOn / TurnOff)</div>
+                <div class="section-desc">Pomiary w czasie rzeczywistym z czujników temperatury obu jednostek wentylacyjnych (/API/RunFunction?name=GetTemperatures)</div>
+            </div>
+            <div class="params-header-actions">
+                <span class="last-update-time" id="lastTempUpdate">Oczekiwanie na dane...</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btnRefreshTemps" onclick="refreshTemperatures()" title="Odśwież aktualne temperatury">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    <span>Odśwież parametry</span>
+                </button>
             </div>
         </div>
-        <div class="btn-group">
-            <button type="button" class="btn btn-success" onclick="execCmd('turn_on', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
-                <span>Włącz wentylację (TurnOn)</span>
-            </button>
-            <button type="button" class="btn btn-danger" onclick="execCmd('turn_off', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                <span>Wyłącz wentylację (TurnOff)</span>
-            </button>
+
+        <div class="devices-dashboard">
+            <!-- Karta Wentylacja 1 (10.0.0.8) -->
+            <div class="device-card-large" id="card_dev_1">
+                <div class="dev-header-row">
+                    <div class="dev-info-left">
+                        <div class="dev-badge-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+                        </div>
+                        <div>
+                            <div class="dev-title-text">
+                                <span>Wentylacja 1</span>
+                                <span class="dev-ip-tag">10.0.0.8</span>
+                            </div>
+                            <div class="dev-subtitle-text">Jednostka główna</div>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="badge badge-secondary" id="badge_status_1">Pobieranie...</span>
+                    </div>
+                </div>
+
+                <!-- 4 Główne temperatury w torze powietrza -->
+                <div class="temps-grid-4">
+                    <div class="temp-box box-intake" title="Intake: Temperatura powietrza czerpanego z zewnątrz">
+                        <div class="temp-box-label">Zewnątrz</div>
+                        <div class="temp-box-val" id="val_intake_1">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Czerpnia</div>
+                    </div>
+
+                    <div class="temp-box box-supply" title="Supply: Temperatura powietrza nawiewanego do pomieszczeń">
+                        <div class="temp-box-label">Nawiew</div>
+                        <div class="temp-box-val" id="val_supply_1">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Do pokoi</div>
+                    </div>
+
+                    <div class="temp-box box-extract" title="Extract: Temperatura powietrza wywiewanego z pomieszczeń">
+                        <div class="temp-box-label">Wywiew</div>
+                        <div class="temp-box-val" id="val_extract_1">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Z pokoi</div>
+                    </div>
+
+                    <div class="temp-box box-launcher" title="Launcher: Temperatura powietrza usuwanego na zewnątrz">
+                        <div class="temp-box-label">Usuwanie</div>
+                        <div class="temp-box-val" id="val_launcher_1">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Wyrzutnia</div>
+                    </div>
+                </div>
+
+                <!-- Podzespoły: Nagrzewnica, GWC -->
+                <div class="components-row">
+                    <!-- Nagrzewnica -->
+                    <div class="comp-card" title="Nagrzewnica (HeaterCooler)">
+                        <div class="comp-left">
+                            <div class="comp-icon" style="color:#fbbf24;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                            </div>
+                            <div>
+                                <div class="comp-name">Nagrzewnica</div>
+                                <div class="comp-temp" id="val_heater_1">--.- °C</div>
+                            </div>
+                        </div>
+                        <span class="comp-status-badge comp-status-off" id="badge_heater_1">--</span>
+                    </div>
+
+                    <!-- GWC -->
+                    <div class="comp-card" title="Gruntowy Wymiennik Ciepła (GWC)">
+                        <div class="comp-left">
+                            <div class="comp-icon" style="color:#34d399;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            </div>
+                            <div>
+                                <div class="comp-name">GWC</div>
+                                <div class="comp-temp" id="val_gwc_1">--.- °C</div>
+                            </div>
+                        </div>
+                        <span class="comp-status-badge comp-status-off" id="badge_gwc_1">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Karta Wentylacja 2 (10.0.0.9) -->
+            <div class="device-card-large" id="card_dev_2">
+                <div class="dev-header-row">
+                    <div class="dev-info-left">
+                        <div class="dev-badge-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
+                        </div>
+                        <div>
+                            <div class="dev-title-text">
+                                <span>Wentylacja 2</span>
+                                <span class="dev-ip-tag">10.0.0.9</span>
+                            </div>
+                            <div class="dev-subtitle-text">Jednostka dodatkowa</div>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="badge badge-secondary" id="badge_status_2">Pobieranie...</span>
+                    </div>
+                </div>
+
+                <!-- 4 Główne temperatury w torze powietrza -->
+                <div class="temps-grid-4">
+                    <div class="temp-box box-intake" title="Intake: Temperatura powietrza czerpanego z zewnątrz">
+                        <div class="temp-box-label">Zewnątrz</div>
+                        <div class="temp-box-val" id="val_intake_2">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Czerpnia</div>
+                    </div>
+
+                    <div class="temp-box box-supply" title="Supply: Temperatura powietrza nawiewanego do pomieszczeń">
+                        <div class="temp-box-label">Nawiew</div>
+                        <div class="temp-box-val" id="val_supply_2">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Do pokoi</div>
+                    </div>
+
+                    <div class="temp-box box-extract" title="Extract: Temperatura powietrza wywiewanego z pomieszczeń">
+                        <div class="temp-box-label">Wywiew</div>
+                        <div class="temp-box-val" id="val_extract_2">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Z pokoi</div>
+                    </div>
+
+                    <div class="temp-box box-launcher" title="Launcher: Temperatura powietrza usuwanego na zewnątrz">
+                        <div class="temp-box-label">Usuwanie</div>
+                        <div class="temp-box-val" id="val_launcher_2">--.- <small>°C</small></div>
+                        <div class="temp-box-sub">Wyrzutnia</div>
+                    </div>
+                </div>
+
+                <!-- Podzespoły: Nagrzewnica, GWC -->
+                <div class="components-row">
+                    <!-- Nagrzewnica -->
+                    <div class="comp-card" title="Nagrzewnica (HeaterCooler)">
+                        <div class="comp-left">
+                            <div class="comp-icon" style="color:#fbbf24;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                            </div>
+                            <div>
+                                <div class="comp-name">Nagrzewnica</div>
+                                <div class="comp-temp" id="val_heater_2">--.- °C</div>
+                            </div>
+                        </div>
+                        <span class="comp-status-badge comp-status-off" id="badge_heater_2">--</span>
+                    </div>
+
+                    <!-- GWC -->
+                    <div class="comp-card" title="Gruntowy Wymiennik Ciepła (GWC)">
+                        <div class="comp-left">
+                            <div class="comp-icon" style="color:#34d399;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            </div>
+                            <div>
+                                <div class="comp-name">GWC</div>
+                                <div class="comp-temp" id="val_gwc_2">--.- °C</div>
+                            </div>
+                        </div>
+                        <span class="comp-status-badge comp-status-off" id="badge_gwc_2">--</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- 2. GŁÓWNE TRYBY WENTYLACJI -->
+    <!-- 1. TRYBY WENTYLACJI -->
     <div class="control-section">
         <div class="section-header">
             <div>
@@ -1354,7 +1787,7 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 3. WIETRZENIE (AIRING) -->
+    <!-- 2. WIETRZENIE (AIRING) -->
     <div class="control-section">
         <div class="section-header">
             <div>
@@ -1387,36 +1820,57 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 4. TRYB WAKACJE -->
+    <!-- 3. BYPASS -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
-                    Tryb Wakacje (Holiday)
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                    Bypass (Obejście Wymiennika)
                 </div>
-                <div class="section-desc">Minimalna wymiana powietrza na czas nieobecności domowników</div>
+                <div class="section-desc">Tryb pracy klapy obejścia: Automatyczny (mode=2), Otwarty - letni (mode=1) lub Zamknięty (mode=0)</div>
             </div>
         </div>
         <div class="btn-group">
-            <button type="button" class="btn btn-purple" onclick="execCmd('holiday_on', { days: getHolidayDays() }, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span>Włącz Wakacje</span>
+            <button type="button" class="btn btn-primary" onclick="execCmd('bypass_auto', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <span>Bypass Automatyczny (mode=2)</span>
             </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('holiday_off', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                <span>Wyłącz Wakacje (TurnOffHoliday)</span>
+            <button type="button" class="btn btn-cyan" onclick="execCmd('bypass_open', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>
+                <span>Bypass Otwarty (mode=1)</span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('bypass_close', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>Bypass Zamknięty (mode=0)</span>
             </button>
         </div>
-        <div class="param-bar">
-            <span class="param-label">Liczba dni wakacji:</span>
-            <input type="number" id="input_holiday_days" class="param-input" min="1" max="99" value="1">
-            <div class="param-quick-btns">
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(1)">1 dzień</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(3)">3 dni</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(7)">7 dni</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(14)">14 dni</button>
+    </div>
+
+    <!-- 4. GWC (GRUNTOWY WYMIENNIK CIEPŁA) -->
+    <div class="control-section">
+        <div class="section-header">
+            <div>
+                <div class="section-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    GWC (Gruntowy Wymiennik Ciepła)
+                </div>
+                <div class="section-desc">Sterowanie czerpnią gruntową GWC: Auto (mode=2), Włączona (mode=1) lub Wyłączona (mode=0)</div>
             </div>
+        </div>
+        <div class="btn-group">
+            <button type="button" class="btn btn-primary" onclick="execCmd('gwc_auto', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <span>GWC Auto (mode=2)</span>
+            </button>
+            <button type="button" class="btn btn-success" onclick="execCmd('gwc_on', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>GWC Włącz (mode=1)</span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('gwc_off', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>GWC Wyłącz (mode=0)</span>
+            </button>
         </div>
     </div>
 
@@ -1454,56 +1908,58 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 6. BYPASS -->
+    <!-- 6. TRYB WAKACJE -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
-                    Bypass (Obejście Wymiennika)
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                    Tryb Wakacje (Holiday)
                 </div>
-                <div class="section-desc">Tryb pracy klapy obejścia: Automatyczny (mode=2), Otwarty - letni (mode=1) lub Zamknięty (mode=0)</div>
+                <div class="section-desc">Minimalna wymiana powietrza na czas nieobecności domowników</div>
             </div>
         </div>
         <div class="btn-group">
-            <button type="button" class="btn btn-primary" onclick="execCmd('bypass_auto', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                <span>Bypass Automatyczny (mode=2)</span>
+            <button type="button" class="btn btn-purple" onclick="execCmd('holiday_on', { days: getHolidayDays() }, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span>Włącz Wakacje</span>
             </button>
-            <button type="button" class="btn btn-cyan" onclick="execCmd('bypass_open', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>
-                <span>Bypass Otwarty (mode=1)</span>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('holiday_off', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>Wyłącz Wakacje (TurnOffHoliday)</span>
             </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('bypass_close', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                <span>Bypass Zamknięty (mode=0)</span>
-            </button>
+        </div>
+        <div class="param-bar">
+            <span class="param-label">Liczba dni wakacji:</span>
+            <input type="number" id="input_holiday_days" class="param-input" min="1" max="99" value="1">
+            <div class="param-quick-btns">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(1)">1 dzień</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(3)">3 dni</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(7)">7 dni</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(14)">14 dni</button>
+            </div>
         </div>
     </div>
 
-    <!-- 7. GWC (GRUNTOWY WYMIENNIK CIEPŁA) -->
+    <!-- 7. ZASILANIE JEDNOSTEK -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    GWC (Gruntowy Wymiennik Ciepła)
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
+                    Zasilanie Jednostek
                 </div>
-                <div class="section-desc">Sterowanie czerpnią gruntową GWC: Auto (mode=2), Włączona (mode=1) lub Wyłączona (mode=0)</div>
+                <div class="section-desc">Główne włączenie lub wyłączenie wentylatorów (TurnOn / TurnOff)</div>
             </div>
         </div>
         <div class="btn-group">
-            <button type="button" class="btn btn-primary" onclick="execCmd('gwc_auto', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                <span>GWC Auto (mode=2)</span>
+            <button type="button" class="btn btn-success" onclick="execCmd('turn_on', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
+                <span>Włącz wentylację (TurnOn)</span>
             </button>
-            <button type="button" class="btn btn-success" onclick="execCmd('gwc_on', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>GWC Włącz (mode=1)</span>
-            </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('gwc_off', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                <span>GWC Wyłącz (mode=0)</span>
+            <button type="button" class="btn btn-danger" onclick="execCmd('turn_off', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                <span>Wyłącz wentylację (TurnOff)</span>
             </button>
         </div>
     </div>
@@ -1534,42 +1990,15 @@ if ($requestedAction !== null || $requestedName !== null) {
             <button type="button" class="btn btn-secondary btn-xs" onclick="clearLog()">Wyczyść</button>
         </div>
         <div class="log-list" id="logList">
-            <div class="log-entry" style="color: #64748b;">Panel załadowany. Gotowy do wysyłania poleceń do obu rekuperatorów.</div>
+            <div class="log-entry" style="color: #64748b;">Panel załadowany. Gotowy do wysyłania poleceń do obu jednostek wentylacyjnych.</div>
         </div>
-    </div>
-
-    <!-- ŚCIĄGAWKA POLECEŃ CURL -->
-    <div class="curl-box">
-        <div class="curl-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            <span>Przykłady Wywołań cURL z Konsoli / Home Assistant / Skryptów Bash:</span>
-        </div>
-        <div class="curl-code"># 1. Wysyłanie przez serwer PI1 do OBU jednostek wentylacji jednocześnie:
-curl -s "http://10.0.0.4/wentylacja.php?action=auto"
-curl -s "http://10.0.0.4/wentylacja.php?action=normal"
-curl -s "http://10.0.0.4/wentylacja.php?action=slow"
-curl -s "http://10.0.0.4/wentylacja.php?action=airing_on&time=20"
-curl -s "http://10.0.0.4/wentylacja.php?action=airing_off"
-curl -s "http://10.0.0.4/wentylacja.php?action=holiday_on&days=1"
-curl -s "http://10.0.0.4/wentylacja.php?action=heating_on&temp=22"
-curl -s "http://10.0.0.4/wentylacja.php?action=bypass&mode=1"
-curl -s "http://10.0.0.4/wentylacja.php?action=gwc&mode=2"
-curl -s "http://10.0.0.4/wentylacja.php?action=replace_filters"
-
-# 2. Bezpośrednie przekazywanie nazwy funkcji RunFunction:
-curl -s "http://10.0.0.4/wentylacja.php?name=AutomaticMode"
-curl -s "http://10.0.0.4/wentylacja.php?name=ManualMode&airflowvalue=80&valueofairextraction=70"
-curl -s "http://10.0.0.4/wentylacja.php?name=SetByPassMode&mode=1"
-
-# 3. Wybór tylko jednej jednostki (opcjonalny target):
-curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=1"   # tylko 10.0.0.8
-curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9</div>
     </div>
 </div>
 
 <script>
     // Zmienna wybranego celu (domyślnie 'both')
     let currentTarget = 'both';
+    let isRefreshingTemps = false;
 
     function setTarget(target) {
         currentTarget = target;
@@ -1649,6 +2078,9 @@ curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
 
             const data = await response.json();
             handleCmdResponse(data);
+
+            // Po wykonaniu polecenia odśwież parametry z lekkim opóźnieniem
+            setTimeout(refreshTemperatures, 1200);
         } catch (err) {
             appendLog(`Błąd komunikacji z serwerem PI1: ${err.message}`, 'error');
             showToast(`Błąd sieci: ${err.message}`, 'danger');
@@ -1686,60 +2118,112 @@ curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
         }
     }
 
-    // Sprawdzenie dostępności obu jednostek
-    async function checkAllStatuses() {
-        const badge1 = document.getElementById('badge_status_1');
-        const badge2 = document.getElementById('badge_status_2');
-        badge1.className = 'badge badge-warning';
-        badge1.textContent = 'Sprawdzanie...';
-        badge2.className = 'badge badge-warning';
-        badge2.textContent = 'Sprawdzanie...';
+    // Pobranie i odświeżenie temperatur oraz parametrów pracy w czasie rzeczywistym
+    async function refreshTemperatures() {
+        if (isRefreshingTemps) return;
+        isRefreshingTemps = true;
+
+        const btn = document.getElementById('btnRefreshTemps');
+        const updateLabel = document.getElementById('lastTempUpdate');
+        let origHtml = '';
+        if (btn) {
+            btn.disabled = true;
+            origHtml = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:1.5px;"></span> <span>Odświeżanie...</span>';
+        }
 
         try {
-            const response = await fetch('wentylacja.php?api=status', { credentials: 'same-origin' });
+            const response = await fetch('wentylacja.php?api=temperatures', { credentials: 'same-origin' });
             const data = await response.json();
-            const statuses = data.statuses || {};
+            const devices = data.devices || {};
 
-            if (statuses['10.0.0.8']) {
-                const s1 = statuses['10.0.0.8'];
-                badge1.className = 'badge ' + s1.status_class;
-                badge1.textContent = s1.online ? `Dostępny (${s1.latency_ms} ms)` : 'Wyłączony';
-            }
-            if (statuses['10.0.0.9']) {
-                const s2 = statuses['10.0.0.9'];
-                badge2.className = 'badge ' + s2.status_class;
-                badge2.textContent = s2.online ? `Dostępny (${s2.latency_ms} ms)` : 'Wyłączony';
-            }
+            updateDeviceCard('1', '10.0.0.8', devices['10.0.0.8']);
+            updateDeviceCard('2', '10.0.0.9', devices['10.0.0.9']);
 
-            appendLog(`Status łączności odświeżony: 10.0.0.8 (${statuses['10.0.0.8']?.online ? 'Online' : 'Offline'}), 10.0.0.9 (${statuses['10.0.0.9']?.online ? 'Online' : 'Offline'})`, 'info');
-        } catch (e) {
-            badge1.className = 'badge badge-danger';
-            badge1.textContent = 'Błąd testu';
-            badge2.className = 'badge badge-danger';
-            badge2.textContent = 'Błąd testu';
+            const now = new Date().toLocaleTimeString();
+            if (updateLabel) {
+                updateLabel.textContent = `Odświeżono: ${now}`;
+            }
+        } catch (err) {
+            console.error('Błąd pobierania temperatur:', err);
+            if (updateLabel) {
+                updateLabel.textContent = 'Błąd odczytu danych';
+            }
+        } finally {
+            isRefreshingTemps = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
         }
     }
-            const data = await response.json();
-            const statuses = data.statuses || {};
 
-            if (statuses['10.0.0.8']) {
-                const s1 = statuses['10.0.0.8'];
-                badge1.className = 'badge ' + s1.status_class;
-                badge1.textContent = s1.online ? `Dostępny (${s1.latency_ms} ms)` : 'Wyłączony';
-            }
-            if (statuses['10.0.0.9']) {
-                const s2 = statuses['10.0.0.9'];
-                badge2.className = 'badge ' + s2.status_class;
-                badge2.textContent = s2.online ? `Dostępny (${s2.latency_ms} ms)` : 'Wyłączony';
-            }
+    // Aktualizacja widoku pojedynczej karty jednostki
+    function updateDeviceCard(id, ip, devData) {
+        const badge = document.getElementById(`badge_status_${id}`);
 
-            appendLog(`Status łączności odświeżony: 10.0.0.8 (${statuses['10.0.0.8']?.online ? 'Online' : 'Offline'}), 10.0.0.9 (${statuses['10.0.0.9']?.online ? 'Online' : 'Offline'})`, 'info');
-        } catch (e) {
-            badge1.className = 'badge badge-danger';
-            badge1.textContent = 'Błąd testu';
-            badge2.className = 'badge badge-danger';
-            badge2.textContent = 'Błąd testu';
+        if (!devData || !devData.online || !devData.parameters) {
+            if (badge) {
+                badge.className = 'badge badge-danger';
+                badge.textContent = devData?.error || 'Wyłączony / Brak danych';
+            }
+            return;
         }
+
+        if (badge) {
+            badge.className = 'badge badge-success';
+            badge.textContent = `Dostępny (${devData.latency_ms} ms)`;
+        }
+
+        const p = devData.parameters;
+
+        // 4 Główne temperatury w torze wentylacji
+        setMetricVal(`val_intake_${id}`, p.intake);
+        setMetricVal(`val_supply_${id}`, p.supply);
+        setMetricVal(`val_extract_${id}`, p.extract);
+        setMetricVal(`val_launcher_${id}`, p.launcher);
+
+        // Nagrzewnica
+        setMetricVal(`val_heater_${id}`, p.heater_cooler);
+        const bHeater = document.getElementById(`badge_heater_${id}`);
+        if (bHeater) {
+            if (p.heater_cooler_active === 1) {
+                bHeater.className = 'comp-status-badge comp-status-warn';
+                bHeater.textContent = 'Wł';
+            } else {
+                bHeater.className = 'comp-status-badge comp-status-off';
+                bHeater.textContent = 'Wył';
+            }
+        }
+
+        // GWC
+        setMetricVal(`val_gwc_${id}`, p.gwc);
+        const bGwc = document.getElementById(`badge_gwc_${id}`);
+        if (bGwc) {
+            if (p.gwc_active === 1) {
+                bGwc.className = 'comp-status-badge comp-status-on';
+                bGwc.textContent = 'Wł';
+            } else {
+                bGwc.className = 'comp-status-badge comp-status-off';
+                bGwc.textContent = 'Wył';
+            }
+        }
+    }
+
+    function setMetricVal(elemId, val) {
+        const el = document.getElementById(elemId);
+        if (!el) return;
+        if (val === null || val === undefined || isNaN(val)) {
+            el.innerHTML = '--.- <small>°C</small>';
+        } else {
+            el.innerHTML = `${Number(val).toFixed(1)} <small>°C</small>`;
+        }
+    }
+
+    // Sprawdzenie dostępności obu jednostek (używane przez przycisk w nagłówku)
+    async function checkAllStatuses() {
+        await refreshTemperatures();
+        appendLog('Sprawdzono połączenie i odświeżono parametry urządzeń.', 'info');
     }
 
     function appendLog(htmlContent, type = 'info') {
@@ -1780,9 +2264,11 @@ curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
         }, 4000);
     }
 
-    // Automatyczne sprawdzenie statusu po załadowaniu strony
+    // Automatyczne sprawdzenie statusu i pobranie parametrów po załadowaniu strony
     window.addEventListener('DOMContentLoaded', () => {
-        checkAllStatuses();
+        refreshTemperatures();
+        // Cykliczne auto-odświeżanie parametrów co 30 sekund
+        setInterval(refreshTemperatures, 30000);
     });
 </script>
 
