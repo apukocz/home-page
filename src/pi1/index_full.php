@@ -1158,6 +1158,7 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
     <div class="server-links">
         <span class="server-link active-host">PI1 (Rolety: Salon / Piwnica / Dach / Bramy)</span>
         <a href="wentylacja.php" class="server-link">Wentylacja (10.0.0.8 / 10.0.0.9) &rarr;</a>
+        <a href="http://10.0.0.118/" class="server-link">PI0 (Kotłownia: Piec CWU / CO / Pompa) &rarr;</a>
         <a href="http://10.0.0.5/" class="server-link">PI2 (Rolety: Piętro 2 / Parter) &rarr;</a>
         <a href="http://10.0.0.2/" class="server-link">Cubie (Dom / Piece) &rarr;</a>
     </div>
@@ -1193,6 +1194,11 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             <span>Serwery:</span>
         </div>
         <div class="server-nav-links">
+            <a href="http://10.0.0.118/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU i pompą na serwerze PI0">
+                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
+                <span>PI0: Kotłownia (Piec CWU / CO / Pompa)</span>
+                <span class="badge-ip">10.0.0.118</span>
+            </a>
             <a href="http://10.0.0.5/" class="server-nav-link" title="Przejdź do sterowania roletami Piętro 2 / Parter na serwerze PI2">
                 <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 <span>PI2: Rolety Piętro 2 / Parter</span>

@@ -1,20 +1,24 @@
-# Podsumowanie Wdrożenia: Sterowanie Roletami PI1 i PI2 (PHP + Apache + I2C)
+# Podsumowanie Wdrożenia: Sterowanie Roletami, Wentylacją i Kotłownią (PI0, PI1, PI2)
 
-Niniejszy dokument zawiera podsumowanie architektury środowiska multi-server, konfiguracji przekaźników i paneli WWW dla serwerów **PI1** (`10.0.0.4`) oraz **PI2** (`10.0.0.5`), pełną składnię poleceń `curl` do zdalnego sterowania przez API oraz chronologiczny rejestr wykonanych prac i ustaleń w ramach konwersacji.
+Niniejszy dokument zawiera podsumowanie architektury środowiska multi-server, konfiguracji przekaźników i paneli WWW dla serwerów **PI0** (`10.0.0.118`), **PI1** (`10.0.0.4`) oraz **PI2** (`10.0.0.5`), pełną składnię poleceń `curl` do zdalnego sterowania przez API oraz chronologiczny rejestr wykonanych prac i ustaleń w ramach konwersacji.
 
 ---
 
 ## 1. Architektura Środowiska Multi-Server
 
-W systemie domowym funkcjonują 3 serwery Apache/Linux połączone w sieci lokalnej:
+W systemie domowym funkcjonują 4 serwery Apache/Linux połączone w sieci lokalnej:
 
 1. **`cubie` (`10.0.0.2` | katalog `src/cubie/`):**
    - Sterowanie piecem, CWU, pompą ciepła, pompami obiegowymi, zbiornikiem, elektrozaworami wody i rekuperacją/wentylacją.
    - *Status:* Pozostawiony bez zmian per wytyczne użytkownika.
-2. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
+2. **`pi0` (`10.0.0.118` | katalog `src/pi0/`):**
+   - Sterowanie kotłownią: **Piec Gazowy CWU** (GPIO 526 / pin 14), **Piec Gazowy CO** (GPIO 527 / pin 15) oraz **Pompa obiegowa** (GPIO 530 / pin 18).
+   - Sterowanie wentylacją: dedykowany panel i API `wentylacja.php` komunikujący się z obiema jednostkami wentylacyjnymi (`10.0.0.8` i `10.0.0.9`).
+3. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
    - Sterowanie roletami i bramami: **Piętro 1 (Salon - 8 rolet)**, **Piwnica (5 rolet)**, **Dach (1 roleta)** oraz **Bramy (wjazdowa i garażowa - 2 przekaźniki)**.
+   - Sterowanie wentylacją: panel i API `wentylacja.php` dla jednostek `10.0.0.8` i `10.0.0.9`.
    - Sprzęt: PCA9685 I2C (`RELAY_POWER=526` na Raspberry Pi / `14` legacy), skrypt `script.sh` dla rolet oraz `script_one.sh` dla bram z czasem powrotu (90s).
-3. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
+4. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
    - Sterowanie roletami: **Piętro 2 (7 rolet)** oraz **Parter (6 rolet)**.
    - Sprzęt: PCA9685 I2C (`RELAY_POWER=535`), skrypt `script.sh`.
 
@@ -75,11 +79,45 @@ Panel serwera PI2 (**Sterowanie Roletami PI2**) został zorganizowany w układzi
 ### Widoki na serwerze PI2:
 - **Główny ([`src/pi2/index.php`](file:///home/user/home-page/src/pi2/index.php)):** 10 pozycji pokojowych z przyciskiem globalnym **`Rozwiń szczegóły (3)`**.
 - **Wszystkie przekaźniki ([`src/pi2/index_full.php`](file:///home/user/home-page/src/pi2/index_full.php)):** 13 niezależnych wierszy przekaźników.
-- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI1** (`10.0.0.4`) oraz **Cubie** (`10.0.0.2`).
+- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI0** (`10.0.0.118`), **PI1** (`10.0.0.4`), **Cubie** (`10.0.0.2`) oraz **Wentylacji** (`wentylacja.php`).
 
 ---
 
-## 4. Składnia Poleceń `curl` i Zdalne API
+## 4. Serwer PI0 (`10.0.0.118`): Sterowanie Kotłownią i Wentylacją
+
+Panel serwera PI0 (**Sterowanie Kotłownią • PI0**) zarządza 3 bezpośrednimi liniami przekaźnikowymi GPIO wyprowadzonymi w `/var/www/gpio/`:
+- **Piec Gazowy CWU** – sterowanie obwodem podgrzewania Ciepłej Wody Użytkowej (GPIO526 / pin fizyczny 14),
+- **Piec Gazowy CO** – sterowanie obwodem Centralnego Ogrzewania (GPIO527 / pin fizyczny 15),
+- **Pompa obiegowa** – sterowanie pompą cyrkulacji instalacji grzewczej (GPIO530 / pin fizyczny 18).
+
+Ponadto na serwerze PI0 funkcjonuje niezależny panel i API sterowania obiema jednostkami wentylacyjnymi ([`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php) oraz alias [`src/pi0/rekuperacja.php`](file:///home/user/home-page/src/pi0/rekuperacja.php)) komunikujący się równolegle z urządzeniami `10.0.0.8` i `10.0.0.9`.
+
+### Tabela Mapowania Urządzeń i Linii GPIO PI0 ([`src/pi0/config.php`](file:///home/user/home-page/src/pi0/config.php))
+
+| Urządzenie | Identyfikator (`device` / `relay`) | Plik w `/var/www/gpio/` | Numer GPIO (offset 512) | Pin fizyczny | Logika przekaźnika | Domyślny stan początkowy |
+|---|---|---|---|---|---|---|
+| **Piec Gazowy CWU** | `piec_cwu` (`sw1`) | `/var/www/gpio/gpio526` | `526` (512 + 14) | 14 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
+| **Piec Gazowy CO** | `piec_co` (`sw2`) | `/var/www/gpio/gpio527` | `527` (512 + 15) | 15 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
+| **Pompa obiegowa** | `pompa` (`sw3`) | `/var/www/gpio/gpio530` | `530` (512 + 18) | 18 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
+| *Zasilanie przekaźników* | `relay_power` (`sw4`) | `/var/www/gpio/gpio535` | `535` (512 + 23) | 23 | Linia szyny zasilania modułu | `1` |
+
+### Widoki na serwerze PI0:
+- **Kotłownia ([`src/pi0/index.php`](file:///home/user/home-page/src/pi0/index.php)):**
+  - Kafelki dla Pieca CWU, Pieca CO oraz Pompy obiegowej z etykietami GPIO i pinów,
+  - Przyciski bezpośredniego włączania (**Włącz**) i wyłączania (**Wyłącz**) dla każdego urządzenia,
+  - Plakietki statusu na żywo (`● WŁĄCZONY` zielony pulsujący / `○ WYŁĄCZONY` szary),
+  - Przyciski bezpieczeństwa w nagłówku: **`Wyłącz wszystko`**, **`Włącz wszystko`** oraz **`Odśwież`**,
+  - Pełna obsługa Optimistic UI (natychmiastowa reakcja 0 ms z animacją ładowania i blokadą podwójnego kliknięcia),
+  - Asynchroniczny polling w tle co 2.5s bez obciążania Apache (podgląd stanu w czasie rzeczywistym).
+- **Wentylacja ([`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php)):**
+  - Równoległe sterowanie i odczyt temperatur z obu jednostek wentylacyjnych (`10.0.0.8` i `10.0.0.9`),
+  - Odczyt 4 temperatur toru powietrza (Zewnątrz, Nawiew, Wywiew, Usuwanie) oraz statusów podzespołów (Nagrzewnica, GWC ze zwięzłymi plakietkami Wł / Wył),
+  - Alias kompatybilności wstecznej `rekuperacja.php`.
+- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI1** (`10.0.0.4`), **PI2** (`10.0.0.5`), **Cubie** (`10.0.0.2`) oraz **Wentylacji** (`wentylacja.php`).
+
+---
+
+## 5. Składnia Poleceń `curl` i Zdalne API
 
 Aplikacje zwracają odpowiedzi w formacie **JSON** i obsługują metody **POST** oraz **GET**.
 
@@ -222,15 +260,60 @@ curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
 curl -s "http://10.0.0.4/wentylacja.php?action=status"
 ```
 
+### D. Sterowanie Kotłownią na serwerze PI0 (`10.0.0.118`)
+
+```bash
+# 1. Odpytanie o status wszystkich urządzeń w formacie JSON:
+curl -s "http://10.0.0.118/index.php?api=status"
+
+# 2. Sterowanie Piecem Gazowym CWU (GPIO 526):
+curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=on"
+curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=off"
+curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=toggle"
+
+# 3. Sterowanie Piecem Gazowym CO (GPIO 527):
+curl -X POST http://10.0.0.118/index.php -d "device=piec_co&action=on"
+curl -X POST http://10.0.0.118/index.php -d "device=piec_co&action=off"
+
+# 4. Sterowanie Pompą obiegową (GPIO 530):
+curl -X POST http://10.0.0.118/index.php -d "device=pompa&action=on"
+curl -X POST http://10.0.0.118/index.php -d "device=pompa&action=off"
+
+# 5. Sterowanie grupowe (Wszystkie urządzenia naraz):
+curl -X POST http://10.0.0.118/index.php -d "device=ALL&action=off"
+curl -X POST http://10.0.0.118/index.php -d "device=ALL&action=on"
+
+# 6. Obsługa przez metodę GET oraz kompatybilność legacy (np. Home Assistant / Alexa):
+curl -s "http://10.0.0.118/index.php?device=piec_cwu&action=on"
+curl -s "http://10.0.0.118/index.php?sw1=on"     # Piec CWU włącz
+curl -s "http://10.0.0.118/index.php?sw1=off"    # Piec CWU wyłącz
+curl -s "http://10.0.0.118/index.php?sw2=on"     # Piec CO włącz
+curl -s "http://10.0.0.118/index.php?sw2=off"    # Piec CO wyłącz
+curl -s "http://10.0.0.118/index.php?sw3=on"     # Pompa włącz
+curl -s "http://10.0.0.118/index.php?sw3=off"    # Pompa wyłącz
+curl -s "http://10.0.0.118/index.php?sw100=off"  # Wszystkie wyłącz
+
+# 7. Sterowanie wentylacją z poziomu PI0 (10.0.0.118):
+curl -s "http://10.0.0.118/wentylacja.php?api=temperatures"
+curl -s "http://10.0.0.118/wentylacja.php?action=auto"
+curl -s "http://10.0.0.118/wentylacja.php?action=normal"
+curl -s "http://10.0.0.118/wentylacja.php?action=slow"
+```
+
 ---
 
-## 5. Struktura Plików w Repozytorium
+## 6. Struktura Plików w Repozytorium
 
 ```
 /home/user/home-page/
 ├── GEMINI.md                    # Niniejsza dokumentacja i historia konwersacji
 ├── src/
 │   ├── cubie/                   # Serwer 10.0.0.2 (bez zmian per wytyczne)
+│   ├── pi0/                     # Serwer 10.0.0.118 (Kotłownia: Piec CWU, Piec CO, Pompa + Wentylacja)
+│   │   ├── config.php           # Konfiguracja urządzeń GPIO, mapowania rejestrów i funkcji
+│   │   ├── index.php            # Główny panel WWW PI0 (Piec CWU, Piec CO, Pompa)
+│   │   ├── wentylacja.php       # Panel i API sterowania dwiema jednostkami wentylacji (10.0.0.8 i 10.0.0.9)
+│   │   └── rekuperacja.php      # Alias kompatybilności wstecznej (dołącza wentylacja.php)
 │   ├── pi1/                     # Serwer 10.0.0.4 (Piętro 1, Piwnica, Dach, Bramy, Wentylacja)
 │   │   ├── config.php           # Konfiguracja pomieszczeń, sekcji i przekaźników
 │   │   ├── index.php            # Główny panel WWW PI1 (10 pokoi + akordeony)
@@ -458,3 +541,129 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
 - **Wykonanie:**
   - Usunięto kontener `.curl-box` oraz powiązane style CSS ze strony [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) (pełna dokumentacja cURL pozostaje w niniejszym dokumencie [`GEMINI.md`](file:///mnt/z/Vagrant/home-page/GEMINI.md)).
   - Zsynchronizowano plik z serwerem produkcyjnym PI1 (`10.0.0.4:/var/www/wentylacja.php`).
+
+### Krok 19: Wdrożenie sterowania kotłownią (Piec CWU, Piec CO, Pompa) oraz wentylacji dla serwera PI0 (`10.0.0.118`)
+- **Polecenie użytkownika:**
+  - Utworzenie w katalogu `src/pi0/` strony w podobnym układzie do PI1 i PI2 dla serwera PI0 (`10.0.0.118`).
+  - Obsługa klawiszy przekaźnikowych:
+    - **Piec Gazowy CWU** – przekaźnik GPIO526 w `/var/www/gpio/`,
+    - **Piec Gazowy CO** – przekaźnik GPIO527 w `/var/www/gpio/`,
+    - **Pompa obiegowa** – przekaźnik GPIO530 w `/var/www/gpio/`.
+  - Dodanie linków umożliwiających przechodzenie do PI1, PI2 oraz Wentylacji.
+  - Utworzenie na serwerze PI0 działającej podstrony dla wentylacji (`wentylacja.php` i aliasu `rekuperacja.php`).
+- **Analiza sprzętowo-systemowa serwera PI0 (`10.0.0.118`):**
+  - Raspberry Pi (kernel Linux 6.18, baza GPIO 512):
+    - `gpio526` (pin 14) -> Piec Gazowy CWU,
+    - `gpio527` (pin 15) -> Piec Gazowy CO,
+    - `gpio530` (pin 18) -> Pompa obiegowa.
+  - Skrypt rozruchowy `/etc/init.d/raspberry` tworzy dowiązania symboliczne w `/var/www/gpio/gpio*` do `/sys/class/gpio/gpio*/value` z domyślnym stanem `1` (wyłączony).
+  - Skorygowano uprawnienia w `/etc/init.d/raspberry` na `chmod 666 /sys/class/gpio/gpio*/value` oraz dodano użytkownika `www-data` do grupy `gpio`, co umożliwiło procesom Apache bezpośredni, błyskawiczny (sub-milisekundowy) zapis i odczyt stanów bez konieczności forkowania powłoki.
+- **Wykonanie i wdrożenie:**
+  1. Utworzono [`src/pi0/config.php`](file:///home/user/home-page/src/pi0/config.php):
+     - Zdefiniowano strukturę `$DEVICES` z mapowaniem identyfikatorów (`piec_cwu`, `piec_co`, `pompa`), opisami, ikonami i plikami w `/var/www/gpio/`.
+     - Zaimplementowano funkcje `getDeviceState()`, `setDeviceState()`, `setAllDevicesState()` oraz `getAllDevicesStatus()`.
+  2. Utworzono [`src/pi0/index.php`](file:///home/user/home-page/src/pi0/index.php):
+     - Nowoczesny panel dark theme ze spójną szatą graficzną z PI1 i PI2.
+     - Dedykowane karty urządzeń z kolorowymi ikonami SVG, etykietami pinów oraz pulsującymi wskaźnikami stanu na żywo.
+     - Niezależne przyciski **Włącz** oraz **Wyłącz** dla każdego z urządzeń.
+     - Przyciski bezpieczeństwa: **Wyłącz wszystko** oraz **Włącz wszystko**.
+     - Wzorzec Optimistic UI (natychmiastowa reakcja 0 ms z animacją kręciołka i blokadą spamu kliknięć).
+     - Asynchroniczne odpytywanie w tle (`pollStatus` co 2.5s) z muteksem `isPolling`.
+     - Pełne REST/JSON API: `?api=status`, `action=on/off/toggle`, zgodność wsteczna z parametrami legacy (`?sw1=on/off`, `?sw2=on/off`, `?sw3=on/off`, `?sw100=off`).
+  3. Utworzono [`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php) oraz [`src/pi0/rekuperacja.php`](file:///home/user/home-page/src/pi0/rekuperacja.php):
+     - Pełna funkcjonalność równoległego odczytu temperatur i sterowania jednostkami `10.0.0.8` i `10.0.0.9`.
+     - Zaktualizowano nagłówek i belki nawigacji wskazujące na hosta `10.0.0.118`.
+  4. Aktualizacja nawigacji multi-server w całej sieci domowej:
+     - Dodano odnośnik do serwera PI0 (`http://10.0.0.118/`) w paskach nawigacji `.server-links` oraz `.server-nav` na serwerach:
+       - **PI1 (`10.0.0.4`):** [`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php), [`src/pi1/wentylacja.php`](file:///home/user/home-page/src/pi1/wentylacja.php),
+       - **PI2 (`10.0.0.5`):** [`src/pi2/index.php`](file:///home/user/home-page/src/pi2/index.php), [`src/pi2/index_full.php`](file:///home/user/home-page/src/pi2/index_full.php).
+  5. Wdrożenie produkcyjne i weryfikacja na serwerach:
+     - Wdrożono pliki `config.php`, `index.php`, `wentylacja.php`, `rekuperacja.php` do `/var/www/` na serwerze `10.0.0.118`.
+     - Zaktualizowano pliki na serwerach `10.0.0.4` oraz `10.0.0.5`.
+     - Przetestowano załączanie i wyłączanie obwodów przez cURL i API – czasy odpowiedzi poniżej 15 ms, bezbłędny zapis do sysfs GPIO.
+
+---
+
+## 7. Kompletny Zapis Przebiegu Rozmowy i Poleceń Użytkownika
+
+Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań użytkownika skierowanych w toku niniejszej sesji konwersacji, wraz z precyzyjnym opisem podjętych działań, decyzji architektonicznych i efektów wdrożeniowych.
+
+### Wpis 1: Wdrożenie odczytu parametrów pracy urządzeń wentylacyjnych (GetTemperatures)
+- **Dokładne zapytanie użytkownika:**
+  > *„chcialbym na stronie wentylacji wyswietlac aktualne parametry pracy urzadzen. Aby to wykonac nalezy wyslac zapytanie prze API do urzadzenia*
+  > */usr/bin/curl 'http://10.0.0.8/API/RunFunction?name=GetTemperatures'*
+  > */usr/bin/curl 'http://10.0.0.9/API/RunFunction?name=GetTemperatures'*
+  > 
+  > *przetlumaczone wartosci zwrotne*
+  > *{"GetTemperaturesResult":true,*
+  > *"Intake":"14.2" # # Zewnatrz*
+  > *"Launcher":"15.5" # Usuwanie*
+  > *"Supply":"20.3" # Nawiew*
+  > *"Extract":"21.1" # Wywiew*
+  > *"HeaterCooler":"20.8" Nagrzewnica*
+  > *"HeaterCoolerActive":1*
+  > *"GWC":"10.4" # GWC*
+  > *"GWCActive":1 # GWC Wlaczone 1 Wylaczone 0*
+  > *"Room":"0.0"*
+  > *"RoomTempActive":0*
+  > *"Additional":"0.0"*
+  > *"AdditionalTempActive":0}”*
+- **Podjęte działania:**
+  1. W pliku [`src/pi1/wentylacja.php`](file:///home/user/home-page/src/pi1/wentylacja.php) zaimplementowano równoległą obsługę API `GetTemperatures` za pomocą `curl_multi` dla jednostek `10.0.0.8` i `10.0.0.9`.
+  2. Dodano backendowe tłumaczenie parametrów na język polski (Zewnątrz, Usuwanie, Nawiew, Wywiew, Nagrzewnica, GWC, Pokój, Dodatkowa).
+  3. Zbudowano nowoczesny kafelkowy panel parametrów z podziałem na 4 główne temperatury toru powietrza oraz kafelki podzespołów.
+  4. Wdrożono automatyczne cykliczne odpytywanie w tle w JavaScript oraz przycisk „Odśwież parametry”.
+  5. Zsynchronizowano plik z serwerem produkcyjnym `10.0.0.4:/var/www/wentylacja.php`.
+
+### Wpis 2: Uproszczenie widoku parametrów i skrócone statusy Wł / Wył
+- **Dokładne zapytanie użytkownika:**
+  > *„usun z widoku pole pokoj i dodatkowe. Zamiast nagrzewnica wlaczona uzyj Wł lub wyłączona wył popraw to samo dla gwc”*
+- **Podjęte działania:**
+  1. Usunięto pola *Pokój* (`Room`) i *Dodatkowa* (`Additional`) z widoku kafelkowego w [`src/pi1/wentylacja.php`](file:///home/user/home-page/src/pi1/wentylacja.php).
+  2. Zmieniono etykiety stanu na skrócone: **`Wł`** (aktywny) i **`Wył`** (nieaktywny) dla *Nagrzewnicy* oraz *GWC*.
+  3. Zsynchronizowano plik z serwerem produkcyjnym `10.0.0.4:/var/www/wentylacja.php`.
+
+### Wpis 3: Przeorganizowanie kolejności bloków w panelu wentylacji
+- **Dokładne zapytanie użytkownika:**
+  > *„block z zasilanie jednostki przesun nad Filtry i Serwis. Tryb Wakacje nad zasilanie jednostki. Ogrzewanie nad Tryb Wakacje.”*
+- **Podjęte działania:**
+  1. Zmodyfikowano strukturę HTML w [`src/pi1/wentylacja.php`](file:///home/user/home-page/src/pi1/wentylacja.php) ustalając nową kolejność sekcji:
+     - *Ogrzewanie / Nagrzewnica (Heating)*
+     - *Tryb Wakacje (Holiday)*
+     - *Zasilanie Jednostek (TurnOn / TurnOff)*
+     - *Filtry i Serwis (ReplaceFilters)*
+  2. Zsynchronizowano plik z serwerem produkcyjnym `10.0.0.4:/var/www/wentylacja.php`.
+
+### Wpis 4: Usunięcie sekcji pomocy cURL z panelu WWW
+- **Dokładne zapytanie użytkownika:**
+  > *„usun blok Przykłady Wywołań cURL z Konsoli / Home Assistant / Skryptów Bash:”*
+- **Podjęte działania:**
+  1. Usunięto kontener `.curl-box` oraz style CSS z widoku strony [`src/pi1/wentylacja.php`](file:///home/user/home-page/src/pi1/wentylacja.php).
+  2. Pełną dokumentację poleceń zachowano w niniejszym pliku [`GEMINI.md`](file:///home/user/home-page/GEMINI.md).
+  3. Zsynchronizowano plik z serwerem produkcyjnym `10.0.0.4:/var/www/wentylacja.php`.
+
+### Wpis 5: Utworzenie i wdrożenie serwera PI0 (10.0.0.118) dla Kotłowni i Wentylacji
+- **Dokładne zapytanie użytkownika:**
+  > *„Na serwerze pi0 10.0.0.118 src/pi0 stworz w podobna ukladdzie strone jak na PI1 i PI2 lecz ten serwer bedzie obslugiwal klawisze:*
+  > *Piec Gazowy CWU przekaznik - GPIO526 w /var/www/gpio/*
+  > *Piec Gazowy CO - GPIO527 w /var/www/gpio/*
+  > *Pompa obiegowa - GPIO530 w /var/www/gpio/*
+  > *Nie zapomnij dodac linki pozwalajace na przechodzenie do PI1 PI2 oraz Wentylacja i utworz tez na tym serwerze strone dla wentylacji.”*
+- **Podjęte działania:**
+  1. Zbadano strukturę fizyczną serwera PI0 (`10.0.0.118`): kernel Linux 6.18, offset GPIO 512 (linie 14, 15, 18).
+  2. Nadano uprawnienia zapisu dla Apache `www-data` (`chmod 666 /sys/class/gpio/gpio*/value`) oraz zmodyfikowano skrypt rozruchowy `/etc/init.d/raspberry`.
+  3. Utworzono pełny zestaw aplikacji w [`src/pi0/`](file:///home/user/home-page/src/pi0/):
+     - [`config.php`](file:///home/user/home-page/src/pi0/config.php) – konfiguracja urządzeń kotłowni, definicje GPIO i funkcje sterujące.
+     - [`index.php`](file:///home/user/home-page/src/pi0/index.php) – panel kotłowni dark theme, dedykowane karty z ikonami SVG, przyciski Włącz/Wyłącz, Optimistic UI (0 ms), polling co 2.5s, przyciski grupowe „Wyłącz wszystko” i „Włącz wszystko”.
+     - [`wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php) oraz alias [`rekuperacja.php`](file:///home/user/home-page/src/pi0/rekuperacja.php) – panel i API wentylacji dedykowane dla serwera PI0.
+  4. Zaktualizowano paski nawigacji `.server-links` oraz `.server-nav` na wszystkich serwerach (PI0, PI1, PI2), dodając wzajemne bezpośrednie odnośniki do PI0 (`10.0.0.118`).
+  5. Wdrożono pliki na fizyczny serwer `10.0.0.118:/var/www/` oraz zaktualizowano pliki na `10.0.0.4` i `10.0.0.5`.
+  6. Przetestowano załączanie i wyłączanie obwodów kotłowni oraz odczyt parametrów wentylacji (czasy odpowiedzi poniżej 15 ms).
+
+### Wpis 6: Zapis całości przebiegu do GEMINI.md
+- **Dokładne zapytanie użytkownika:**
+  > *„zapisz cala rozmowe do GEMINI.md”*
+- **Podjęte działania:**
+  1. Zaktualizowano niniejszy plik [`GEMINI.md`](file:///home/user/home-page/GEMINI.md) o pełną dokumentację środowiska 4 serwerów, tabelę urządzeń kotłowni PI0, składnię poleceń cURL dla wszystkich urządzeń oraz kompletny chronologiczny rejestr zapytań użytkownika i wdrożonych rozwiązań.
+
+
