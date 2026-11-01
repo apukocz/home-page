@@ -6,6 +6,7 @@
 // Ścieżka do skryptu wykonawczego script.sh
 define('SCRIPT_PATH', __DIR__ . '/script.sh');
 define('SCRIPT_ONE_PATH', __DIR__ . '/script_one.sh');
+define('SCRIPT_BRAMA_PATH', __DIR__ . '/script_brama.sh');
 
 // Katalog z plikami konfiguracyjnymi i stanami (.state)
 // Jeśli istnieje /var/www/gpio to użyj go, w przeciwnym razie użyj katalogu gpio w bieżącym folderze
@@ -39,9 +40,63 @@ $FLOORS = [
     ],
     'bramy' => [
         'name' => 'Bramy',
-        'desc' => 'Bramy wjazdowe posesji • 2 przekaźniki',
-        'desc_full' => 'Posesja • 2 przekaźniki impulsowe',
+        'desc' => 'Bramy posesji • GPIO 530 / 527 (script_brama.sh)',
+        'desc_full' => 'Posesja • 2 przekaźniki GPIO impulsowe',
         'icon' => 'gate',
+    ]
+];
+
+// Konfiguracja bezpośredniego sterowania bramami skryptem script_brama.sh (GPIO 530 / GPIO 527)
+$GATE_CONFIG = [
+    'brama_wjazd' => [
+        'param' => 'relay_brama_wjazdowa',
+        'gpio' => 530,
+        'default_time' => '0.5'
+    ],
+    'relay_brama_wjazd' => [
+        'param' => 'relay_brama_wjazdowa',
+        'gpio' => 530,
+        'default_time' => '0.5'
+    ],
+    'relay_brama_wjazdowa' => [
+        'param' => 'relay_brama_wjazdowa',
+        'gpio' => 530,
+        'default_time' => '0.5'
+    ],
+    'wjazdowa' => [
+        'param' => 'relay_brama_wjazdowa',
+        'gpio' => 530,
+        'default_time' => '0.5'
+    ],
+    'brama_wjazdowa' => [
+        'param' => 'relay_brama_wjazdowa',
+        'gpio' => 530,
+        'default_time' => '0.5'
+    ],
+    'brama_garaz' => [
+        'param' => 'relay_brama_garazowa',
+        'gpio' => 527,
+        'default_time' => '0.5'
+    ],
+    'relay_brama_garaz' => [
+        'param' => 'relay_brama_garazowa',
+        'gpio' => 527,
+        'default_time' => '0.5'
+    ],
+    'relay_brama_garazowa' => [
+        'param' => 'relay_brama_garazowa',
+        'gpio' => 527,
+        'default_time' => '0.5'
+    ],
+    'garazowa' => [
+        'param' => 'relay_brama_garazowa',
+        'gpio' => 527,
+        'default_time' => '0.5'
+    ],
+    'brama_garazowa' => [
+        'param' => 'relay_brama_garazowa',
+        'gpio' => 527,
+        'default_time' => '0.5'
     ]
 ];
 
@@ -200,7 +255,7 @@ $ROOMS = [
     // =========================================================================
     'brama_wjazd' => [
         'name' => 'Brama wjazdowa',
-        'desc' => 'Brama wjazd na posesję (impuls)',
+        'desc' => 'Brama wjazd na posesję (GPIO 530 • impuls 0.5s)',
         'floor' => 'bramy',
         'icon' => 'gate',
         'relays' => [
@@ -209,7 +264,7 @@ $ROOMS = [
     ],
     'brama_garaz' => [
         'name' => 'Brama garażowa',
-        'desc' => 'Brama do garażu (impuls)',
+        'desc' => 'Brama do garażu (GPIO 527 • impuls 0.5s)',
         'floor' => 'bramy',
         'icon' => 'garage',
         'relays' => [
@@ -334,18 +389,18 @@ $INDIVIDUAL_ROOMS = [
     ],
 
     // -------------------------------------------------------------------------
-    // 4. BRAMY (2 przekaźniki)
+    // 4. BRAMY (2 przekaźniki GPIO)
     // -------------------------------------------------------------------------
     'brama_wjazd' => [
         'name' => 'Brama wjazdowa',
-        'desc' => 'Posesja • brama wjazdowa (impuls)',
+        'desc' => 'Posesja • brama wjazdowa (GPIO 530 • script_brama.sh)',
         'floor' => 'bramy',
         'icon' => 'gate',
         'relays' => ['relay_brama_wjazd']
     ],
     'brama_garaz' => [
         'name' => 'Brama garażowa',
-        'desc' => 'Posesja • brama garażowa (impuls)',
+        'desc' => 'Posesja • brama garażowa (GPIO 527 • script_brama.sh)',
         'floor' => 'bramy',
         'icon' => 'garage',
         'relays' => ['relay_brama_garaz']
@@ -399,5 +454,11 @@ $EXTRA_ROOMS = [
 $ROOM_ALIASES = [
     'kuchnie' => 'kuchnia',
     'dach_wejscie' => 'dach',
-    'bramy' => 'bramy_all'
+    'bramy' => 'bramy_all',
+    'wjazdowa' => 'brama_wjazd',
+    'garazowa' => 'brama_garaz',
+    'brama_wjazdowa' => 'brama_wjazd',
+    'brama_garazowa' => 'brama_garaz',
+    'relay_brama_wjazdowa' => 'brama_wjazd',
+    'relay_brama_garazowa' => 'brama_garaz',
 ];

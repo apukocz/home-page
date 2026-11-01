@@ -1,0 +1,56 @@
+#! /bin/sh
+#
+#
+
+GPIO_DIR=/var/www/gpio
+PATH_GPIO=/var/www/gpio
+DIR="/sys/class/gpio"
+GPIO=/sys/devices/platform/gpio-sunxi/gpio
+ECHO=/bin/echo
+
+F_RELAY () {
+    local RELAY="$1"
+    VALUE=535 # 23
+    echo ${RELAY} > $DIR/export
+    echo out > $DIR/gpio${RELAY}/direction
+    echo 1 > $DIR/gpio${RELAY}/value
+    chmod 777 $DIR/gpio${RELAY}/value
+    rm ${GPIO_DIR}/gpio${RELAY}
+    ln -s $DIR/gpio${RELAY}/value ${GPIO_DIR}/gpio${RELAY} # 23 Pin 23 staje się pinem ${VALUE} (512 + 23)
+    chmod 755 /sys/class/gpio/gpio${RELAY}
+    chmod 666 /sys/class/gpio/gpio${RELAY}/value
+
+}
+
+
+case "$1" in
+  start)
+
+  # Relay 14
+  F_RELAY 526
+  # Relay 15
+  F_RELAY 527
+  # Relay 18
+  F_RELAY 530
+  # Relay 23
+  F_RELAY 535
+  # Relay 24
+  F_RELAY 536
+  # Relay 25
+  F_RELAY 537
+  # Relay 8
+  F_RELAY 520
+  # Relay 7
+  F_RELAY 519
+
+    ;;
+  stop)
+    echo "No Stopping "
+    ;;
+  *)
+    echo "Usage: /etc/init.d/raspberry {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0

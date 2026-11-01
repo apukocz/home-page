@@ -1,75 +1,65 @@
+#!/bin/sh
 
-GPIO_DIR=/var/www/gpio
-WWW_DIR=/var/www
+GPIO_DIR=${GPIO_DIR:-/var/www/gpio}
+WWW_DIR=${WWW_DIR:-/var/www}
 ECHO=/bin/echo
 KILL=/bin/kill
 I2CSET=/usr/sbin/i2cset
 
-PCA9685_BUS=1
-RELAY_POWER=15
-RELAY_POWER_FILE=relay_power.state
-SCRIPT_FILENAME=script_one.sh
+CONF_NAME=$1
+STATUS=$2
+RELAY=$3
+TIME=${4:-0.5}
 
-STATUS=$1
-TIME=$2
+# Logowanie każdego wywołania do pliku dla pełnej widoczności w systemie
+LOG_FILE="${GPIO_DIR}/script_brama.log"
+${ECHO} "$(date '+%Y-%m-%d %H:%M:%S') [PID: $$] sh script_brama.sh ${CONF_NAME} ${STATUS} ${RELAY} ${TIME}" >> "${LOG_FILE}" 2>/dev/null
 
-CONF_FILE_NAME=relay_setup.conf
-
-CONF_NAME=relay_brama_wjazd
+# sh script_brama.sh relay_brama_wjazdowa open 530 0.5 # opcjonalnie
+# sh script_brama.sh relay_brama_garazowa open 527 0.5
 
 ####
 
-F_EXEC () {                                    # Func DEBUG_WHILE_1
+F_EXEC () {
 
-        TYPE=relay_brama_wjazd
-        sh ${WWW_DIR}/${SCRIPT_FILENAME} ${TYPE} ${STATUS} ${TIME}> /dev/null 2>/dev/null &
-
-
-	TYPE=relay_brama_garaz
-	sh ${WWW_DIR}/${SCRIPT_FILENAME} ${TYPE} ${STATUS} ${TIME}> /dev/null 2>/dev/null &
+  ${ECHO} 0 > ${GPIO_DIR}/gpio${RELAY}
+  sleep ${TIME}
+  ${ECHO} 1 > ${GPIO_DIR}/gpio${RELAY}
 
 }
 
 
 #####
 
-case "$1" in
+case "$2" in
   open)
-        ${ECHO} "Open ..."
+  ${ECHO} "Open ..."
 
-	#F_EXEC
+  ${ECHO} 1 > ${GPIO_DIR}/${CONF_NAME}.state
 
-	${ECHO} 1 > ${GPIO_DIR}/${CONF_NAME}.state
+  F_EXEC
 
-	F_EXEC
-
-        ;;
+  ;;
   close)
-        ${ECHO} "Close ..."
+    ${ECHO} "Close ..."
 
-	#F_EXEC
+    ${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
 
-	${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
-
-	F_EXEC
+    F_EXEC
 
 	;;
   stop)
-        ${ECHO} "Stop ..."
+    ${ECHO} "Stop ..."
 
-	#F_EXEC
+    ${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
 
-	${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
+    F_EXEC
 
-	F_EXEC
-
-        ;;
+  ;;
   *)
-    echo "Usage: {start|stop}"
+    echo "Usage: $0 [nazwa] {open|close|stop} [relay] [time]"
     exit 1
     ;;
 esac
 
 exit 0
-
-

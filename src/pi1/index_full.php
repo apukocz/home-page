@@ -42,7 +42,7 @@ function getActiveScriptProcesses() {
     if (!empty($procFiles)) {
         foreach ($procFiles as $cmdFile) {
             $cmd = @file_get_contents($cmdFile);
-            if ($cmd !== false && (strpos($cmd, 'script.sh') !== false || strpos($cmd, 'script_one.sh') !== false)) {
+            if ($cmd !== false && (strpos($cmd, 'script.sh') !== false || strpos($cmd, 'script_one.sh') !== false || strpos($cmd, 'script_brama.sh') !== false)) {
                 $cachedProcesses[] = str_replace("\0", ' ', $cmd);
             }
         }
@@ -51,7 +51,7 @@ function getActiveScriptProcesses() {
 
     // 2. Fallback - jedno wywołanie ps na całe żądanie (zamiast kilkudziesięciu osobnych)
     if (function_exists('shell_exec')) {
-        $output = @shell_exec("ps -eo args 2>/dev/null | grep -E 'script(_one)?\\.sh' | grep -v grep");
+        $output = @shell_exec("ps -eo args 2>/dev/null | grep -E '(script(_one|_brama)?|brama)\\.sh' | grep -v grep");
         if ($output) {
             foreach (explode("\n", trim($output)) as $line) {
                 if (trim($line) !== '') {
@@ -68,21 +68,36 @@ function getActiveScriptProcesses() {
  * Sprawdza stan pojedynczego przekaźnika
  */
 function getRelayInfo($relay) {
+    global $GATE_CONFIG;
     $gpioDir = GPIO_DIR;
     $stateFile = rtrim($gpioDir, '/') . '/' . $relay . '.state';
     
     $isOpenRunning = false;
     $isCloseRunning = false;
     
+    $isGate = isset($GATE_CONFIG[$relay]) || (strpos($relay, 'brama') !== false);
+    $gateParam = $GATE_CONFIG[$relay]['param'] ?? ((strpos($relay, 'garaz') !== false) ? 'relay_brama_garazowa' : 'relay_brama_wjazdowa');
+    $gateGpio = $GATE_CONFIG[$relay]['gpio'] ?? ((strpos($relay, 'garaz') !== false) ? '527' : '530');
+
     $activeProcesses = getActiveScriptProcesses();
     if (!empty($activeProcesses)) {
         foreach ($activeProcesses as $cmd) {
-            if (strpos($cmd, " {$relay} open") !== false) {
-                $isOpenRunning = true;
-                break;
-            } elseif (strpos($cmd, " {$relay} close") !== false) {
-                $isCloseRunning = true;
-                break;
+            if ($isGate) {
+                if (strpos($cmd, " {$gateParam} open") !== false || (strpos($cmd, " {$gateGpio}") !== false && strpos($cmd, 'open') !== false)) {
+                    $isOpenRunning = true;
+                    break;
+                } elseif (strpos($cmd, " {$gateParam} close") !== false || (strpos($cmd, " {$gateGpio}") !== false && strpos($cmd, 'close') !== false)) {
+                    $isCloseRunning = true;
+                    break;
+                }
+            } else {
+                if (strpos($cmd, " {$relay} open") !== false) {
+                    $isOpenRunning = true;
+                    break;
+                } elseif (strpos($cmd, " {$relay} close") !== false) {
+                    $isCloseRunning = true;
+                    break;
+                }
             }
         }
     }
@@ -94,14 +109,33 @@ function getRelayInfo($relay) {
         return ['state' => 'closing', 'label' => 'Zamykanie...', 'badge' => 'badge-warning', 'is_open' => true];
     }
 
-    if (file_exists($stateFile) && is_readable($stateFile)) {
-        $val = trim(@file_get_contents($stateFile));
-        if ($val === '1') {
-            return ['state' => 'open', 'label' => 'Otwarty', 'badge' => 'badge-success', 'is_open' => true];
-        } elseif ($val === '2') {
-            return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'badge-secondary', 'is_open' => false];
-        } elseif ($val === '0') {
-            return ['state' => 'moving', 'label' => 'Impuls/Aktywny', 'badge' => 'badge-warning', 'is_open' => true];
+    // Odczyt pliku .state: 1 = open, 2 = close/stop, 0 = pulse/brama active
+    $stateFilesToCheck = [$stateFile];
+    if ($isGate) {
+        $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/' . $gateParam . '.state';
+        if ($gateParam === 'relay_brama_wjazdowa' || $gateParam === 'wjazdowa') {
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/relay_brama_wjazdowa.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/relay_brama_wjazd.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/brama_wjazd.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/wjazdowa.state';
+        } else {
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/relay_brama_garazowa.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/relay_brama_garaz.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/brama_garaz.state';
+            $stateFilesToCheck[] = rtrim($gpioDir, '/') . '/garazowa.state';
+        }
+    }
+
+    foreach ($stateFilesToCheck as $sf) {
+        if (file_exists($sf) && is_readable($sf)) {
+            $val = trim(@file_get_contents($sf));
+            if ($val === '1') {
+                return ['state' => 'open', 'label' => 'Otwarty', 'badge' => 'badge-success', 'is_open' => true];
+            } elseif ($val === '2') {
+                return ['state' => 'closed', 'label' => 'Zamknięty', 'badge' => 'badge-secondary', 'is_open' => false];
+            } elseif ($val === '0') {
+                return ['state' => 'moving', 'label' => 'Impuls/Aktywny', 'badge' => 'badge-warning', 'is_open' => true];
+            }
         }
     }
 
@@ -194,16 +228,82 @@ function runScriptCommand($relay, $action, $time = null) {
         return ['success' => true, 'output' => "Symulacja: {$relay} -> {$action}" . ($timeVal ? " (czas: {$timeVal}s)" : '')];
     }
 
-    $isBrama = (strpos($relay, 'brama') !== false);
-    $script = ($isBrama && defined('SCRIPT_ONE_PATH') && file_exists(SCRIPT_ONE_PATH)) ? SCRIPT_ONE_PATH : SCRIPT_PATH;
+    global $GATE_CONFIG;
+    $gpioDir = GPIO_DIR;
+    $sudoPrefix = USE_SUDO ? 'sudo ' : '';
+    $envPrefix = 'GPIO_DIR=' . escapeshellarg($gpioDir) . ' ';
+
+    // Bramy posesji - dedykowany skrypt script_brama.sh z bezpośrednim sterowaniem GPIO
+    // Składnia wywołania:
+    // sh script_brama.sh relay_brama_wjazdowa open 530 0.5
+    // sh script_brama.sh relay_brama_garazowa open 527 0.5
+    $isBrama = isset($GATE_CONFIG[$relay]) || (strpos($relay, 'brama') !== false) || ($relay === 'wjazdowa') || ($relay === 'garazowa');
+
+    if ($isBrama) {
+        $scriptBrama = defined('SCRIPT_BRAMA_PATH') && file_exists(SCRIPT_BRAMA_PATH) ? SCRIPT_BRAMA_PATH : __DIR__ . '/script_brama.sh';
+        if (!file_exists($scriptBrama)) {
+            return ['success' => false, 'error' => "Brak pliku skryptu bram: {$scriptBrama}"];
+        }
+
+        $bramaCfg = $GATE_CONFIG[$relay] ?? [
+            'param' => (strpos($relay, 'garaz') !== false) ? 'relay_brama_garazowa' : 'relay_brama_wjazdowa',
+            'gpio' => (strpos($relay, 'garaz') !== false) ? 527 : 530,
+            'default_time' => '0.5'
+        ];
+
+        $bramaParam = $bramaCfg['param'];
+        $gpioPin = (int)$bramaCfg['gpio'];
+        $pulseTime = ($timeVal !== null) ? (string)$timeVal : ($bramaCfg['default_time'] ?? '0.5');
+
+        if (SIMULATION_MODE) {
+            $simStateFile = rtrim(GPIO_DIR, '/') . '/' . $relay . '.state';
+            @file_put_contents($simStateFile, ($action === 'open' ? '1' : '2'));
+            return ['success' => true, 'output' => "Symulacja: script_brama.sh {$bramaParam} {$action} {$gpioPin} {$pulseTime}"];
+        }
+
+        // Uruchamianie w tle (nohup / &) dokładnie tak samo jak script.sh
+        $cmd = $envPrefix . $sudoPrefix . 'nohup /bin/sh ' . escapeshellcmd($scriptBrama) . ' '
+             . escapeshellarg($bramaParam) . ' '
+             . escapeshellarg($action) . ' '
+             . escapeshellarg((string)$gpioPin) . ' '
+             . escapeshellarg($pulseTime) . ' > /dev/null 2>&1 &';
+
+        exec($cmd);
+
+        // Zapis do logu wywołań bram dla pełnej widoczności w systemie
+        @file_put_contents(rtrim($gpioDir, '/') . '/script_brama.log', date('Y-m-d H:i:s') . " [PHP exec] {$cmd}\n", FILE_APPEND);
+
+        $stateVal = ($action === 'open') ? '1' : '2';
+        $stateFileRelay = rtrim($gpioDir, '/') . '/' . $relay . '.state';
+        $stateFileNamed = rtrim($gpioDir, '/') . '/' . $bramaParam . '.state';
+        @file_put_contents($stateFileRelay, "{$stateVal}\n");
+        @file_put_contents($stateFileNamed, "{$stateVal}\n");
+        if ($bramaParam === 'relay_brama_wjazdowa') {
+            @file_put_contents(rtrim($gpioDir, '/') . '/relay_brama_wjazd.state', "{$stateVal}\n");
+            @file_put_contents(rtrim($gpioDir, '/') . '/brama_wjazd.state', "{$stateVal}\n");
+            @file_put_contents(rtrim($gpioDir, '/') . '/wjazdowa.state', "{$stateVal}\n");
+        } else {
+            @file_put_contents(rtrim($gpioDir, '/') . '/relay_brama_garaz.state', "{$stateVal}\n");
+            @file_put_contents(rtrim($gpioDir, '/') . '/brama_garaz.state', "{$stateVal}\n");
+            @file_put_contents(rtrim($gpioDir, '/') . '/garazowa.state', "{$stateVal}\n");
+        }
+
+        return [
+            'success' => true,
+            'action' => $action,
+            'time' => $pulseTime,
+            'relay' => $relay,
+            'cmd' => $cmd,
+            'output' => "Uruchomiono script_brama.sh {$bramaParam} {$action} {$gpioPin} {$pulseTime}"
+        ];
+    }
+
+    // Dla pozostałych rolet używamy standardowego script.sh
+    $script = SCRIPT_PATH;
 
     if (!file_exists($script)) {
         return ['success' => false, 'error' => "Brak pliku skryptu: {$script}"];
     }
-
-    $gpioDir = GPIO_DIR;
-    $sudoPrefix = USE_SUDO ? 'sudo ' : '';
-    $envPrefix = 'GPIO_DIR=' . escapeshellarg($gpioDir) . ' ';
 
     if ($action === 'stop') {
         $cmd = $envPrefix . $sudoPrefix . escapeshellcmd($script) . ' ' . escapeshellarg($relay) . ' stop 2>&1';
@@ -433,6 +533,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Diagnostyka
 $diagScriptExists = file_exists(SCRIPT_PATH);
 $diagScriptExec = is_executable(SCRIPT_PATH);
+$diagScriptBramaExists = file_exists(SCRIPT_BRAMA_PATH);
+$diagScriptBramaExec = is_executable(SCRIPT_BRAMA_PATH);
 $diagGpioDirExists = is_dir(GPIO_DIR);
 $diagGpioDirWritable = is_writable(GPIO_DIR);
 $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteuid') ? posix_getpwuid(posix_geteuid())['name'] : get_current_user();
@@ -639,6 +741,12 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             border-color: var(--primary);
             color: #ffffff;
             transform: translateY(-1px);
+        }
+
+        .server-nav-link.active {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: #3b82f6;
+            color: #93c5fd;
         }
 
         .server-nav-link svg {
@@ -1154,14 +1262,31 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
 <div class="toast-container" id="toastContainer"></div>
 
 <div class="container">
-    <!-- Nawigacja multi-server -->
-    <div class="server-links">
-        <span class="server-link active-host">PI1 (Rolety: Salon / Piwnica / Dach / Bramy)</span>
-        <a href="wentylacja.php" class="server-link">Wentylacja (10.0.0.8 / 10.0.0.9) &rarr;</a>
-        <a href="http://10.0.0.118/" class="server-link">PI0 (Kotłownia: Piec CWU / CO / Pompa) &rarr;</a>
-        <a href="http://10.0.0.5/" class="server-link">PI2 (Rolety: Piętro 2 / Parter) &rarr;</a>
-        <a href="http://10.0.0.2/" class="server-link">Cubie (Dom / Piece) &rarr;</a>
-    </div>
+    <!-- Belka przełączania paneli -->
+    <nav class="server-nav">
+        <div class="server-nav-label">
+            <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <span>Panele:</span>
+        </div>
+        <div class="server-nav-links">
+            <a href="http://10.0.0.2/" class="server-nav-link" title="Sterowanie kotłownią">
+                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
+                <span>Kotłownia</span>
+            </a>
+            <a href="index.php" class="server-nav-link active" title="Sterowanie roletami i bramami - Grzegorzka 8">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                <span>Grzegorzka 8</span>
+            </a>
+            <a href="http://10.0.0.5/" class="server-nav-link" title="Sterowanie roletami - Grzegorzka 8A">
+                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                <span>Grzegorzka 8A</span>
+            </a>
+            <a href="wentylacja.php" class="server-nav-link" title="Sterowanie wentylacją">
+                <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+                <span>Wentylacja</span>
+            </a>
+        </div>
+    </nav>
 
     <header>
         <div class="header-title">
@@ -1186,36 +1311,6 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             </button>
         </div>
     </header>
-
-    <!-- Belka przełączania serwerów (PI1, PI2, Cubie) -->
-    <nav class="server-nav">
-        <div class="server-nav-label">
-            <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <span>Serwery:</span>
-        </div>
-        <div class="server-nav-links">
-            <a href="http://10.0.0.118/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU i pompą na serwerze PI0">
-                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
-                <span>PI0: Kotłownia (Piec CWU / CO / Pompa)</span>
-                <span class="badge-ip">10.0.0.118</span>
-            </a>
-            <a href="http://10.0.0.5/" class="server-nav-link" title="Przejdź do sterowania roletami Piętro 2 / Parter na serwerze PI2">
-                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                <span>PI2: Rolety Piętro 2 / Parter</span>
-                <span class="badge-ip">10.0.0.5</span>
-            </a>
-            <a href="http://10.0.0.2/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU, pompami i rekuperacją na serwerze Cubie">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                <span>Cubie: Kotłownia / Wentylacja</span>
-                <span class="badge-ip">10.0.0.2</span>
-            </a>
-            <a href="wentylacja.php" class="server-nav-link" title="Przejdź do sterowania wentylacją (10.0.0.8, 10.0.0.9)">
-                <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
-                <span>Wentylacja (2x)</span>
-                <span class="badge-ip">10.0.0.8 &bull; 10.0.0.9</span>
-            </a>
-        </div>
-    </nav>
 
     <nav class="view-nav">
         <div class="nav-tabs-group">
@@ -1422,6 +1517,12 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
                 <span>Skrypt (script.sh):</span>
                 <span class="<?= $diagScriptExists && $diagScriptExec ? 'status-ok' : 'status-err' ?>">
                     <?= $diagScriptExists ? ($diagScriptExec ? 'Wykonywalny' : 'Brak +x') : 'Nie znaleziono' ?>
+                </span>
+            </div>
+            <div class="diag-item">
+                <span>Skrypt bram (script_brama.sh):</span>
+                <span class="<?= $diagScriptBramaExists && $diagScriptBramaExec ? 'status-ok' : 'status-err' ?>">
+                    <?= $diagScriptBramaExists ? ($diagScriptBramaExec ? 'Wykonywalny' : 'Brak +x') : 'Nie znaleziono' ?>
                 </span>
             </div>
             <div class="diag-item">

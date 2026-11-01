@@ -10,7 +10,7 @@ KILL=/bin/kill
 I2CSET=/usr/sbin/i2cset
 
 PCA9685_BUS=1
-RELAY_POWER=14
+RELAY_POWER=535
 RELAY_POWER_FILE=relay_power.state
 
 CONF_FILE_NAME=relay_setup.conf
@@ -39,7 +39,7 @@ CONF_STATUS=${CONF_NAME}.state
 
 TMP=$1
 
-# Jeseli jest parametr czasu to otwierac/zamykac zgodnie ztym czasem
+# Jezeli jest parametr czasu to otwierac/zamykac zgodnie ztym czasem
 if [ -z ${TIME} ]; then
 	CONF_TIME=$(echo "${CONF}" | cut -d\; -f14)
 else
@@ -75,19 +75,21 @@ fi
 
 
 ####
+# Sprawdza status zasilania i jesli jest cos w RELAY_POWER_FILE nie wylacza aby nie zaklucic odliczania dla pozostalych
 F_RELAY_POWER_CHECK () {
 
         # Sprawdza czy zasilacz jest uzywany przez kogos innego
         STATE=`cat ${GPIO_DIR}/${RELAY_POWER_FILE}`
 
-        # Jesli zamkniety otwiera aby pompa mogla grzac
+        # Jesli jest STATE ten sam to wylacza zasilanie jesli nie to ktorys inny proces zajmuje zasilanie
         if [ ${STATE} = ${CONF_NAME} ]; then
 
-                ${ECHO} 1 > ${GPIO_DIR}/gpio${GPIO_RELAY}/value
+                ${ECHO} 1 > ${GPIO_DIR}/gpio${RELAY_POWER}
 
         fi
 }
 
+# Wylacza zasilanie 
 F_RELAY_POWER_ON () {
 
         # Znacznik do zasilania o wlaczeniu aby nie zaklucac innych przelaczanych przekaznikow
@@ -98,6 +100,7 @@ F_RELAY_POWER_ON () {
 
 }
 
+# Wlacza zasilanie
 F_RELAY_POWER_OFF () {
 
         # Wlaczenie Zasilanie 5v
@@ -106,7 +109,7 @@ F_RELAY_POWER_OFF () {
 }
 
 
-
+# Jezeli proces o tej samej nazwie istnieje w trybie open to go zabija
 F_KILL_PROCESS_OPEN () {
 
         TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} open" | cut -d" " -f1`
@@ -114,11 +117,10 @@ F_KILL_PROCESS_OPEN () {
                 ${KILL} -9 $TMP_PID
         fi
 
-#        TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} close" | cut -d" " -f2`
-#        ${KILL} -9 $TMP_PID
 
 }
 
+# Jezeli proces o tej samej nazwie istnieje w trybie close to go zabija
 F_KILL_PROCESS_CLOSE () {
 
         TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} close" | cut -d" " -f1`
@@ -126,8 +128,6 @@ F_KILL_PROCESS_CLOSE () {
 		${KILL} -9 $TMP_PID
         fi
 
-#        TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} open"| cut -d" " -f2`
-#        ${KILL} -9 $TMP_PID
 
 }
 
@@ -139,11 +139,13 @@ case "$2" in
   open)
 	${ECHO} "Open ..."
 
+
+        # Unija proces o tej samej nazwie w trybie close aby nie zaklocic tego procesu
 	F_KILL_PROCESS_CLOSE
 
 	sleep 1
 
-	# Wlaczenie Zasilanie 5v
+	# Wlaczenie Zasilanie
 	F_RELAY_POWER_ON
 
 	# Start i2cset relay
@@ -154,21 +156,20 @@ case "$2" in
 
 	sleep $CONF_TIME
 
-        # Wylaczenie Zasilanie 5v
-        #F_RELAY_POWER_OFF
-
-        # Power 5v sprawdza status i wylacza przekaznik
-        F_RELAY_POWER_CHECK
-
         # Wylaczenie na koniec
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} ${CONF_RELAY11} ${CONF_STOP1}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} ${CONF_RELAY12} ${CONF_STOP1}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY21} ${CONF_STOP2}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY22} ${CONF_STOP2}
 
+        # Sprawdza zasilanie i jesli jest z tego samego procesu wylacza zasilanie
+        F_RELAY_POWER_CHECK
+
+        # Wylaczenie Zasilanie
+#        F_RELAY_POWER_OFF
+
 	# Send status to the file
 	${ECHO} 1 > ${GPIO_DIR}/${CONF_NAME}.state
-        ${ECHO}  ${GPIO_DIR}/${CONF_NAME}.state
 
 	;;
   close)
@@ -178,7 +179,7 @@ case "$2" in
 
 #	sleep 1
 
-        # Wlaczenie Zasilanie 5v
+        # Wlaczenie Zasilanie
         F_RELAY_POWER_ON
 
         # Close i2cset relay
@@ -189,17 +190,18 @@ case "$2" in
 
         sleep $CONF_TIME
 
-        # Wlaczenie Zasilanie 5v
-        #F_RELAY_POWER_OFF
-
-        # Power 5v sprawdza status i wylacza przekaznik
-        F_RELAY_POWER_CHECK
-
         # Wylaczenie na koniec
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} ${CONF_RELAY11} ${CONF_STOP1}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS1} ${CONF_RELAY12} ${CONF_STOP1}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY21} ${CONF_STOP2}
-        ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY22} ${CONF_STOP2} 
+        ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY22} ${CONF_STOP2}
+       
+
+        # Sprawdza zasilanie i jesli jest z tego samego procesu wylacza zasilanie
+        F_RELAY_POWER_CHECK
+
+        # Wlaczenie Zasilanie
+#       F_RELAY_POWER_OFF
 
 	# Send status to the file
 	${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
@@ -210,7 +212,7 @@ case "$2" in
 
 #	sleep 1
 
-        # Wlaczenie Zasilanie 5v
+        # Wlaczenie Zasilanie
 #        F_RELAY_POWER_OFF
 
 	# Stop i2cset relay
@@ -219,20 +221,19 @@ case "$2" in
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY21} ${CONF_STOP2}
         ${I2CSET} -y ${PCA9685_BUS} ${CONF_ADDRESS2} ${CONF_RELAY22} ${CONF_STOP2}
 
-	# Kill process
+	# Kill process o nazwie open i close
 	F_KILL_PROCESS_OPEN
 	F_KILL_PROCESS_CLOSE
 
 	# Send status to the file
 	${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
 
-	# Power 5v sprawdza status i wylacza przekaznik
+	# Power sprawdza status i wylacza przekaznik
 	F_RELAY_POWER_CHECK
-
 
 	;;
   *)
-    echo "Usage: {start|stop}"
+    echo "Usage: {open|close|stop}"
     exit 1
     ;;
 esac

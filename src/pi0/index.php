@@ -1,6 +1,6 @@
 <?php
 /**
- * Panel Sterowania Kotłownią - PI0 (10.0.0.118)
+ * Panel Sterowania Kotłownią - PI0 (10.0.0.2)
  *
  * Obsługiwane urządzenia:
  * - Piec Gazowy CWU (GPIO526 / pin 14)
@@ -233,6 +233,12 @@ foreach ($devicesStatus as $s) {
             border-color: var(--primary);
             color: #ffffff;
             transform: translateY(-1px);
+        }
+
+        .server-nav-link.active {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: #3b82f6;
+            color: #93c5fd;
         }
 
         .server-nav-link svg {
@@ -569,7 +575,7 @@ foreach ($devicesStatus as $s) {
             font-size: 0.86rem;
             font-weight: 700;
             cursor: pointer;
-            border: 1px solid transparent;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             transition: all 0.2s ease;
             user-select: none;
         }
@@ -581,45 +587,42 @@ foreach ($devicesStatus as $s) {
             fill: none;
         }
 
+        /* Włącz: Niebieski (jak na Grzegorzka 8) */
         .btn-on {
-            background: rgba(16, 185, 129, 0.12);
-            border-color: rgba(16, 185, 129, 0.35);
-            color: #6ee7b7;
+            background: #2563eb;
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.15);
         }
 
         .btn-on:hover:not(:disabled) {
-            background: var(--success);
-            border-color: var(--success);
-            color: #ffffff;
-            box-shadow: 0 4px 12px var(--success-glow);
+            background: #1d4ed8;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
             transform: translateY(-1px);
         }
 
         .btn-on.is-active-btn {
-            background: var(--success);
-            border-color: var(--success);
-            color: #ffffff;
-            box-shadow: 0 0 12px var(--success-glow);
+            background: #1d4ed8;
+            border-color: #60a5fa;
+            box-shadow: 0 0 14px rgba(37, 99, 235, 0.6);
         }
 
+        /* Wyłącz: Czerwony (jak na Grzegorzka 8) */
         .btn-off {
-            background: rgba(239, 68, 68, 0.1);
-            border-color: rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
+            background: #ef4444;
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.15);
         }
 
         .btn-off:hover:not(:disabled) {
-            background: var(--danger);
-            border-color: var(--danger);
-            color: #ffffff;
-            box-shadow: 0 4px 12px var(--danger-glow);
+            background: #dc2626;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
             transform: translateY(-1px);
         }
 
         .btn-off.is-active-btn {
-            background: #1e293b;
-            border-color: #334155;
-            color: #94a3b8;
+            background: #dc2626;
+            border-color: #f87171;
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.6);
         }
 
         .btn-action:disabled {
@@ -719,41 +722,28 @@ foreach ($devicesStatus as $s) {
 <div class="toast-container" id="toastContainer"></div>
 
 <div class="container">
-    <!-- Pasek linków zewnętrznych / serwerów domowych -->
-    <div class="server-links">
-        <span class="server-link active-host">PI0 (Kotłownia: Piec CWU / Piec CO / Pompa) • 10.0.0.118</span>
-        <a href="http://10.0.0.4/" class="server-link">PI1 (Rolety: Salon / Piwnica / Dach / Bramy) &rarr;</a>
-        <a href="http://10.0.0.5/" class="server-link">PI2 (Rolety: Piętro 2 / Parter) &rarr;</a>
-        <a href="http://10.0.0.2/" class="server-link">Cubie (Dom / Piece) &rarr;</a>
-        <a href="wentylacja.php" class="server-link">Wentylacja (2x) &rarr;</a>
-    </div>
-
-    <!-- Belka przełączania serwerów -->
+    <!-- Belka przełączania paneli -->
     <nav class="server-nav">
         <div class="server-nav-label">
             <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <span>Serwery:</span>
+            <span>Panele:</span>
         </div>
         <div class="server-nav-links">
-            <a href="http://10.0.0.4/" class="server-nav-link" title="Przejdź do sterowania roletami na serwerze PI1">
+            <a href="index.php" class="server-nav-link active" title="Sterowanie kotłownią">
+                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
+                <span>Kotłownia</span>
+            </a>
+            <a href="http://10.0.0.4/" class="server-nav-link" title="Sterowanie roletami i bramami - Grzegorzka 8">
                 <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
-                <span>PI1: Rolety Salon / Piwnica / Bramy</span>
-                <span class="badge-ip">10.0.0.4</span>
+                <span>Grzegorzka 8</span>
             </a>
-            <a href="http://10.0.0.5/" class="server-nav-link" title="Przejdź do sterowania roletami na serwerze PI2">
+            <a href="http://10.0.0.5/" class="server-nav-link" title="Sterowanie roletami - Grzegorzka 8A">
                 <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                <span>PI2: Rolety Piętro 2 / Parter</span>
-                <span class="badge-ip">10.0.0.5</span>
+                <span>Grzegorzka 8A</span>
             </a>
-            <a href="http://10.0.0.2/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU i pompami na serwerze Cubie">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                <span>Cubie: Kotłownia</span>
-                <span class="badge-ip">10.0.0.2</span>
-            </a>
-            <a href="wentylacja.php" class="server-nav-link" title="Przejdź do sterowania wentylacją (10.0.0.8, 10.0.0.9)">
+            <a href="wentylacja.php" class="server-nav-link" title="Sterowanie wentylacją">
                 <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
-                <span>Wentylacja (2x)</span>
-                <span class="badge-ip">10.0.0.8 &bull; 10.0.0.9</span>
+                <span>Wentylacja</span>
             </a>
         </div>
     </nav>
@@ -765,17 +755,9 @@ foreach ($devicesStatus as $s) {
                 <svg width="28" height="28" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
                 Sterowanie Kotłownią • PI0
             </h1>
-            <p>Piec Gazowy CWU &bull; Piec Gazowy CO &bull; Pompa obiegowa &bull; Serwer PI0 (10.0.0.118)</p>
+            <p>Piec Gazowy CWU &bull; Piec Gazowy CO &bull; Pompa obiegowa &bull; Serwer PI0 (10.0.0.2)</p>
         </div>
         <div class="header-actions">
-            <button type="button" class="btn-global danger" onclick="triggerAction('ALL', 'off')" title="Wyłącz wszystkie przekaźniki">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6"/></svg>
-                Wyłącz wszystko
-            </button>
-            <button type="button" class="btn-global success" onclick="triggerAction('ALL', 'on')" title="Włącz wszystkie urządzenia">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-                Włącz wszystko
-            </button>
             <button type="button" class="btn-global" onclick="refreshStatus(true)" title="Odśwież status natychmiast">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Odśwież
@@ -827,7 +809,7 @@ foreach ($devicesStatus as $s) {
                 <div class="device-text">
                     <div class="device-name-row">
                         <span class="device-name"><?= htmlspecialchars($dev['name']) ?></span>
-                        <span class="device-badge-gpio">GPIO <?= htmlspecialchars($dev['gpio']) ?> (pin <?= htmlspecialchars($dev['pin']) ?>)</span>
+                        <span class="device-badge-gpio"><?= !empty($dev['script']) ? (htmlspecialchars($dev['script']) . ' &bull; GPIO ' . htmlspecialchars($dev['gpio']) . ' (pin ' . htmlspecialchars($dev['pin']) . ')') : ('GPIO ' . htmlspecialchars($dev['gpio']) . ' (pin ' . htmlspecialchars($dev['pin']) . ')') ?></span>
                         <span class="status-pill <?= $st['badge'] ?>" id="badge-<?= htmlspecialchars($id) ?>">
                             <span class="status-pill-dot"></span>
                             <span class="status-pill-label"><?= htmlspecialchars($st['label']) ?></span>

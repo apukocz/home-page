@@ -1,24 +1,22 @@
 # Podsumowanie Wdrożenia: Sterowanie Roletami, Wentylacją i Kotłownią (PI0, PI1, PI2)
 
-Niniejszy dokument zawiera podsumowanie architektury środowiska multi-server, konfiguracji przekaźników i paneli WWW dla serwerów **PI0** (`10.0.0.118`), **PI1** (`10.0.0.4`) oraz **PI2** (`10.0.0.5`), pełną składnię poleceń `curl` do zdalnego sterowania przez API oraz chronologiczny rejestr wykonanych prac i ustaleń w ramach konwersacji.
+Niniejszy dokument zawiera podsumowanie architektury środowiska multi-server, konfiguracji przekaźników i paneli WWW dla serwerów **PI0** (`10.0.0.2`), **PI1** (`10.0.0.4`) oraz **PI2** (`10.0.0.5`), pełną składnię poleceń `curl` do zdalnego sterowania przez API oraz chronologiczny rejestr wykonanych prac i ustaleń w ramach konwersacji.
 
 ---
 
 ## 1. Architektura Środowiska Multi-Server
 
-W systemie domowym funkcjonują 4 serwery Apache/Linux połączone w sieci lokalnej:
+W systemie domowym funkcjonują 3 serwery Apache/Linux na minikomputerach Raspberry Pi połączone w sieci lokalnej (oraz 2 centrale wentylacji):
 
-1. **`cubie` (`10.0.0.2` | katalog `src/cubie/`):**
-   - Sterowanie piecem, CWU, pompą ciepła, pompami obiegowymi, zbiornikiem, elektrozaworami wody i rekuperacją/wentylacją.
-   - *Status:* Pozostawiony bez zmian per wytyczne użytkownika.
-2. **`pi0` (`10.0.0.118` | katalog `src/pi0/`):**
-   - Sterowanie kotłownią: **Piec Gazowy CWU** (GPIO 526 / pin 14), **Piec Gazowy CO** (GPIO 527 / pin 15) oraz **Pompa obiegowa** (GPIO 530 / pin 18).
+1. **`pi0` (`10.0.0.2` | katalog `src/pi0/`):**
+   - Zastąpił dawny serwer `cubie` pod adresem `10.0.0.2`.
+   - Sterowanie kotłownią przez dedykowane skrypty: **Piec Gazowy CWU** (`script_piec_gaz_cwu.sh open` / `close`, GPIO 537 / pin fizyczny 25), **Piec Gazowy CO** (`script_piec_gaz.sh open` / `close`, GPIO 536 / pin fizyczny 24) oraz **Pompa obiegowa** (`script_pompa_obieg.sh open` / `close`, GPIO 535 / pin fizyczny 23).
    - Sterowanie wentylacją: dedykowany panel i API `wentylacja.php` komunikujący się z obiema jednostkami wentylacyjnymi (`10.0.0.8` i `10.0.0.9`).
-3. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
-   - Sterowanie roletami i bramami: **Piętro 1 (Salon - 8 rolet)**, **Piwnica (5 rolet)**, **Dach (1 roleta)** oraz **Bramy (wjazdowa i garażowa - 2 przekaźniki)**.
+2. **`pi1` (`10.0.0.4` | katalog `src/pi1/`):**
+   - Sterowanie roletami i bramami: **Piętro 1 (Salon - 8 rolet)**, **Piwnica (5 rolet)**, **Dach (1 roleta)** oraz **Bramy (wjazdowa: GPIO 530, garażowa: GPIO 527)**.
    - Sterowanie wentylacją: panel i API `wentylacja.php` dla jednostek `10.0.0.8` i `10.0.0.9`.
-   - Sprzęt: PCA9685 I2C (`RELAY_POWER=526` na Raspberry Pi / `14` legacy), skrypt `script.sh` dla rolet oraz `script_one.sh` dla bram z czasem powrotu (90s).
-4. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
+   - Sprzęt: PCA9685 I2C (`RELAY_POWER=526` na Raspberry Pi / `14` legacy) ze skryptem `script.sh` dla rolet oraz bezpośrednie sterowanie GPIO przez dedykowany skrypt `script_brama.sh` dla obu bram (Brama wjazdowa: GPIO 530, Brama garażowa: GPIO 527).
+3. **`pi2` (`10.0.0.5` | katalog `src/pi2/`):**
    - Sterowanie roletami: **Piętro 2 (7 rolet)** oraz **Parter (6 rolet)**.
    - Sprzęt: PCA9685 I2C (`RELAY_POWER=535`), skrypt `script.sh`.
 
@@ -44,13 +42,13 @@ Panel serwera PI1 (**Sterowanie Roletami PI1**) został zorganizowany w 4 czytel
 | **Piwnica** | `piwnica_skladzik` | Piwnica składzik | `relay_piwnica_skladzik` | Pojedyncza (1 roleta) |
 | **Piwnica** | `piwnica_wejscie` | Piwnica wejście | `relay_piwnica_wejscie` | Pojedyncza (1 roleta) |
 | **Dach** | `dach` | Okno dachowe | `relay_pietro-3_dach` | Pojedyncza (1 roleta) |
-| **Bramy** | `brama_wjazd` | Brama wjazdowa | `relay_brama_wjazd` | Impulsowa (1s impuls, 90s auto-powrót) |
-| **Bramy** | `brama_garaz` | Brama garażowa | `relay_brama_garaz` | Impulsowa (1s impuls) |
+| **Bramy** | `brama_wjazd` | Brama wjazdowa | GPIO 530 (`script_brama.sh relay_brama_wjazdowa open 530 0.5`) | Impulsowa (impuls 0.5s) |
+| **Bramy** | `brama_garaz` | Brama garażowa | GPIO 527 (`script_brama.sh relay_brama_garazowa open 527 0.5`) | Impulsowa (impuls 0.5s) |
 
 ### Widoki na serwerze PI1:
 - **Główny ([`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php)):** 10 pozycji z akordeonami rozwijania pojedynczych skrzydeł (przycisk globalny **`Rozwiń szczegóły (4)`**), przyciski grupowe sekcji oraz pełna obsługa AJAX.
 - **Wszystkie przekaźniki ([`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php)):** 16 niezależnych fizycznych przekaźników z osobnymi przyciskami Otwórz/Zamknij i Stop.
-- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI2** (`10.0.0.5`) oraz **Cubie** (`10.0.0.2`).
+- **Pasek Paneli (`<nav class="server-nav">`):** ujednolicony pasek nawigacji umieszczony na szczycie strony z bezpośrednimi odnośnikami do wszystkich 4 paneli: **Kotłownia** (`10.0.0.2`), **Grzegorzka 8** (`10.0.0.4`), **Grzegorzka 8A** (`10.0.0.5`) oraz **Wentylacja** (bez surowych adresów IP w opisie).
 - **Zgodność wsteczna z Alexa / skryptami legacy:** zachowano pełną obsługę parametrów GET `?sw1=on`, `?sw2=on`, `?sw3=on`, `?sw101=on` (stop) itd.
 
 ---
@@ -79,16 +77,16 @@ Panel serwera PI2 (**Sterowanie Roletami PI2**) został zorganizowany w układzi
 ### Widoki na serwerze PI2:
 - **Główny ([`src/pi2/index.php`](file:///home/user/home-page/src/pi2/index.php)):** 10 pozycji pokojowych z przyciskiem globalnym **`Rozwiń szczegóły (3)`**.
 - **Wszystkie przekaźniki ([`src/pi2/index_full.php`](file:///home/user/home-page/src/pi2/index_full.php)):** 13 niezależnych wierszy przekaźników.
-- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI0** (`10.0.0.118`), **PI1** (`10.0.0.4`), **Cubie** (`10.0.0.2`) oraz **Wentylacji** (`wentylacja.php`).
+- **Pasek Paneli (`<nav class="server-nav">`):** ujednolicony pasek nawigacji na szczycie strony z bezpośrednimi odnośnikami do wszystkich 4 paneli: **Kotłownia**, **Grzegorzka 8**, **Grzegorzka 8A** oraz **Wentylacja**.
 
 ---
 
-## 4. Serwer PI0 (`10.0.0.118`): Sterowanie Kotłownią i Wentylacją
+## 4. Serwer PI0 (`10.0.0.2`): Sterowanie Kotłownią i Wentylacją
 
-Panel serwera PI0 (**Sterowanie Kotłownią • PI0**) zarządza 3 bezpośrednimi liniami przekaźnikowymi GPIO wyprowadzonymi w `/var/www/gpio/`:
-- **Piec Gazowy CWU** – sterowanie obwodem podgrzewania Ciepłej Wody Użytkowej (GPIO526 / pin fizyczny 14),
-- **Piec Gazowy CO** – sterowanie obwodem Centralnego Ogrzewania (GPIO527 / pin fizyczny 15),
-- **Pompa obiegowa** – sterowanie pompą cyrkulacji instalacji grzewczej (GPIO530 / pin fizyczny 18).
+Panel serwera PI0 (**Sterowanie Kotłownią • PI0**) zarządza 3 urządzeniami w kotłowni za pośrednictwem dedykowanych skryptów bash:
+- **Piec Gazowy CWU** – skrypt `script_piec_gaz_cwu.sh open` (włącz) / `close` (wyłącz), GPIO537 / pin fizyczny 25,
+- **Piec Gazowy CO** – skrypt `script_piec_gaz.sh open` (włącz) / `close` (wyłącz), GPIO536 / pin fizyczny 24,
+- **Pompa obiegowa** – skrypt `script_pompa_obieg.sh open` (włącz) / `close` (wyłącz), GPIO535 / pin fizyczny 23.
 
 Ponadto na serwerze PI0 funkcjonuje niezależny panel i API sterowania obiema jednostkami wentylacyjnymi ([`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php) oraz alias [`src/pi0/rekuperacja.php`](file:///home/user/home-page/src/pi0/rekuperacja.php)) komunikujący się równolegle z urządzeniami `10.0.0.8` i `10.0.0.9`.
 
@@ -96,24 +94,24 @@ Ponadto na serwerze PI0 funkcjonuje niezależny panel i API sterowania obiema je
 
 | Urządzenie | Identyfikator (`device` / `relay`) | Plik w `/var/www/gpio/` | Numer GPIO (offset 512) | Pin fizyczny | Logika przekaźnika | Domyślny stan początkowy |
 |---|---|---|---|---|---|---|
-| **Piec Gazowy CWU** | `piec_cwu` (`sw1`) | `/var/www/gpio/gpio526` | `526` (512 + 14) | 14 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
-| **Piec Gazowy CO** | `piec_co` (`sw2`) | `/var/www/gpio/gpio527` | `527` (512 + 15) | 15 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
-| **Pompa obiegowa** | `pompa` (`sw3`) | `/var/www/gpio/gpio530` | `530` (512 + 18) | 18 | `0` = Włączony, `1` = Wyłączony | `1` (Wyłączony) |
-| *Zasilanie przekaźników* | `relay_power` (`sw4`) | `/var/www/gpio/gpio535` | `535` (512 + 23) | 23 | Linia szyny zasilania modułu | `1` |
+| **Piec Gazowy CWU** | `piec_cwu` (`sw1`) | `/var/www/gpio/relay_piec_gaz_cwu.state` / `gpio537` | `537` (512 + 25) | 25 | Skrypt `script_piec_gaz_cwu.sh open` / `close` | `0` (Wyłączony) |
+| **Piec Gazowy CO** | `piec_co` (`sw2`) | `/var/www/gpio/relay_piec_gaz.state` / `gpio536` | `536` (512 + 24) | 24 | Skrypt `script_piec_gaz.sh open` / `close` | `0` (Wyłączony) |
+| **Pompa obiegowa** | `pompa` (`sw3`) | `/var/www/gpio/relay_pompa_obiegowa.state` / `gpio535` | `535` (512 + 23) | 23 | Skrypt `script_pompa_obieg.sh open` / `close` | `0` (Wyłączony) |
+| *Zasilanie przekaźników* | `relay_power` (`sw4`) | `/var/www/gpio/gpio519` | `519` (512 + 7) | 7 | Linia szyny zasilania modułu | `1` |
 
 ### Widoki na serwerze PI0:
 - **Kotłownia ([`src/pi0/index.php`](file:///home/user/home-page/src/pi0/index.php)):**
-  - Kafelki dla Pieca CWU, Pieca CO oraz Pompy obiegowej z etykietami GPIO i pinów,
-  - Przyciski bezpośredniego włączania (**Włącz**) i wyłączania (**Wyłącz**) dla każdego urządzenia,
+  - Kafelki dla Pieca CWU, Pieca CO oraz Pompy obiegowej z etykietami dedykowanych skryptów bash (`script_piec_gaz_cwu.sh`, `script_piec_gaz.sh`, `script_pompa_obieg.sh`), numerów GPIO i pinów fizycznych,
+  - Przyciski bezpośredniego włączania (**Włącz** – niebieski jak na Grzegorzka 8) i wyłączania (**Wyłącz** – czerwony jak na Grzegorzka 8) dla każdego urządzenia,
   - Plakietki statusu na żywo (`● WŁĄCZONY` zielony pulsujący / `○ WYŁĄCZONY` szary),
-  - Przyciski bezpieczeństwa w nagłówku: **`Wyłącz wszystko`**, **`Włącz wszystko`** oraz **`Odśwież`**,
+  - Przycisk odświeżania w nagłówku: **`Odśwież`** (usunięto przyciski grupowe Włącz wszystko / Wyłącz wszystko),
   - Pełna obsługa Optimistic UI (natychmiastowa reakcja 0 ms z animacją ładowania i blokadą podwójnego kliknięcia),
   - Asynchroniczny polling w tle co 2.5s bez obciążania Apache (podgląd stanu w czasie rzeczywistym).
 - **Wentylacja ([`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php)):**
   - Równoległe sterowanie i odczyt temperatur z obu jednostek wentylacyjnych (`10.0.0.8` i `10.0.0.9`),
   - Odczyt 4 temperatur toru powietrza (Zewnątrz, Nawiew, Wywiew, Usuwanie) oraz statusów podzespołów (Nagrzewnica, GWC ze zwięzłymi plakietkami Wł / Wył),
   - Alias kompatybilności wstecznej `rekuperacja.php`.
-- **Pasek Multi-Server (`<nav class="server-nav">`):** bezpośrednie linki do serwerów **PI1** (`10.0.0.4`), **PI2** (`10.0.0.5`), **Cubie** (`10.0.0.2`) oraz **Wentylacji** (`wentylacja.php`).
+- **Pasek Paneli (`<nav class="server-nav">`):** ujednolicony pasek nawigacji na szczycie strony z bezpośrednimi odnośnikami do wszystkich 4 paneli: **Kotłownia**, **Grzegorzka 8**, **Grzegorzka 8A** oraz **Wentylacja**.
 
 ---
 
@@ -154,9 +152,15 @@ curl -X POST http://10.0.0.4/index.php -d "room=prasowalnia&action=close"
 # 4. Dach:
 curl -X POST http://10.0.0.4/index.php -d "room=dach&action=open"
 
-# 5. Bramy posesji:
+# 5. Bramy posesji (sterowanie dedykowanym skryptem script_brama.sh):
 curl -X POST http://10.0.0.4/index.php -d "room=brama_wjazd&action=open"
 curl -X POST http://10.0.0.4/index.php -d "room=brama_garaz&action=open"
+
+# Bezpośrednie wywołanie skryptu z konsoli serwera PI1:
+# Dla Bramy wjazdowej (GPIO 530, impuls 0.5s):
+sh script_brama.sh relay_brama_wjazdowa open 530 0.5
+# Dla Bramy garażowej (GPIO 527, impuls 0.5s):
+sh script_brama.sh relay_brama_garazowa open 527 0.5
 
 # 6. Pojedyncze skrzydła okienne (pod-przekaźniki):
 curl -X POST http://10.0.0.4/index.php -d "room=pietro-1_duzy-pokoj_zachod_balkon&action=close"
@@ -260,44 +264,64 @@ curl -s "http://10.0.0.4/wentylacja.php?action=auto&target=2"   # tylko 10.0.0.9
 curl -s "http://10.0.0.4/wentylacja.php?action=status"
 ```
 
-### D. Sterowanie Kotłownią na serwerze PI0 (`10.0.0.118`)
+### D. Sterowanie Kotłownią na serwerze PI0 (`10.0.0.2`)
 
 ```bash
 # 1. Odpytanie o status wszystkich urządzeń w formacie JSON:
-curl -s "http://10.0.0.118/index.php?api=status"
+curl -s "http://10.0.0.2/index.php?api=status"
 
-# 2. Sterowanie Piecem Gazowym CWU (GPIO 526):
-curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=on"
-curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=off"
-curl -X POST http://10.0.0.118/index.php -d "device=piec_cwu&action=toggle"
+# 2. Sterowanie Piecem Gazowym CWU (skrypt script_piec_gaz_cwu.sh):
+curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=open"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=close"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=on"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=off"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=toggle"
 
-# 3. Sterowanie Piecem Gazowym CO (GPIO 527):
-curl -X POST http://10.0.0.118/index.php -d "device=piec_co&action=on"
-curl -X POST http://10.0.0.118/index.php -d "device=piec_co&action=off"
+# Bezpośrednie wywołanie w konsoli PI0:
+sh script_piec_gaz_cwu.sh open
+sh script_piec_gaz_cwu.sh close
 
-# 4. Sterowanie Pompą obiegową (GPIO 530):
-curl -X POST http://10.0.0.118/index.php -d "device=pompa&action=on"
-curl -X POST http://10.0.0.118/index.php -d "device=pompa&action=off"
+# 3. Sterowanie Piecem Gazowym CO (skrypt script_piec_gaz.sh):
+curl -X POST http://10.0.0.2/index.php -d "device=piec_co&action=open"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_co&action=close"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_co&action=on"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_co&action=off"
+curl -X POST http://10.0.0.2/index.php -d "device=piec_co&action=toggle"
+
+# Bezpośrednie wywołanie w konsoli PI0:
+sh script_piec_gaz.sh open
+sh script_piec_gaz.sh close
+
+# 4. Sterowanie Pompą obiegową (skrypt script_pompa_obieg.sh):
+curl -X POST http://10.0.0.2/index.php -d "device=pompa&action=open"
+curl -X POST http://10.0.0.2/index.php -d "device=pompa&action=close"
+curl -X POST http://10.0.0.2/index.php -d "device=pompa&action=on"
+curl -X POST http://10.0.0.2/index.php -d "device=pompa&action=off"
+curl -X POST http://10.0.0.2/index.php -d "device=pompa&action=toggle"
+
+# Bezpośrednie wywołanie skryptu z konsoli serwera PI0:
+sh script_pompa_obieg.sh open
+sh script_pompa_obieg.sh close
 
 # 5. Sterowanie grupowe (Wszystkie urządzenia naraz):
-curl -X POST http://10.0.0.118/index.php -d "device=ALL&action=off"
-curl -X POST http://10.0.0.118/index.php -d "device=ALL&action=on"
+curl -X POST http://10.0.0.2/index.php -d "device=ALL&action=off"
+curl -X POST http://10.0.0.2/index.php -d "device=ALL&action=on"
 
 # 6. Obsługa przez metodę GET oraz kompatybilność legacy (np. Home Assistant / Alexa):
-curl -s "http://10.0.0.118/index.php?device=piec_cwu&action=on"
-curl -s "http://10.0.0.118/index.php?sw1=on"     # Piec CWU włącz
-curl -s "http://10.0.0.118/index.php?sw1=off"    # Piec CWU wyłącz
-curl -s "http://10.0.0.118/index.php?sw2=on"     # Piec CO włącz
-curl -s "http://10.0.0.118/index.php?sw2=off"    # Piec CO wyłącz
-curl -s "http://10.0.0.118/index.php?sw3=on"     # Pompa włącz
-curl -s "http://10.0.0.118/index.php?sw3=off"    # Pompa wyłącz
-curl -s "http://10.0.0.118/index.php?sw100=off"  # Wszystkie wyłącz
+curl -s "http://10.0.0.2/index.php?device=piec_cwu&action=on"
+curl -s "http://10.0.0.2/index.php?sw1=on"     # Piec CWU włącz
+curl -s "http://10.0.0.2/index.php?sw1=off"    # Piec CWU wyłącz
+curl -s "http://10.0.0.2/index.php?sw2=on"     # Piec CO włącz
+curl -s "http://10.0.0.2/index.php?sw2=off"    # Piec CO wyłącz
+curl -s "http://10.0.0.2/index.php?sw3=on"     # Pompa włącz
+curl -s "http://10.0.0.2/index.php?sw3=off"    # Pompa wyłącz
+curl -s "http://10.0.0.2/index.php?sw100=off"  # Wszystkie wyłącz
 
-# 7. Sterowanie wentylacją z poziomu PI0 (10.0.0.118):
-curl -s "http://10.0.0.118/wentylacja.php?api=temperatures"
-curl -s "http://10.0.0.118/wentylacja.php?action=auto"
-curl -s "http://10.0.0.118/wentylacja.php?action=normal"
-curl -s "http://10.0.0.118/wentylacja.php?action=slow"
+# 7. Sterowanie wentylacją z poziomu PI0 (10.0.0.2):
+curl -s "http://10.0.0.2/wentylacja.php?api=temperatures"
+curl -s "http://10.0.0.2/wentylacja.php?action=auto"
+curl -s "http://10.0.0.2/wentylacja.php?action=normal"
+curl -s "http://10.0.0.2/wentylacja.php?action=slow"
 ```
 
 ---
@@ -308,10 +332,12 @@ curl -s "http://10.0.0.118/wentylacja.php?action=slow"
 /home/user/home-page/
 ├── GEMINI.md                    # Niniejsza dokumentacja i historia konwersacji
 ├── src/
-│   ├── cubie/                   # Serwer 10.0.0.2 (bez zmian per wytyczne)
-│   ├── pi0/                     # Serwer 10.0.0.118 (Kotłownia: Piec CWU, Piec CO, Pompa + Wentylacja)
+│   ├── pi0/                     # Serwer 10.0.0.2 (Kotłownia: Piec CWU, Piec CO, Pompa + Wentylacja)
 │   │   ├── config.php           # Konfiguracja urządzeń GPIO, mapowania rejestrów i funkcji
 │   │   ├── index.php            # Główny panel WWW PI0 (Piec CWU, Piec CO, Pompa)
+│   │   ├── script_piec_gaz_cwu.sh # Skrypt sterowania Piecem CWU (open / close)
+│   │   ├── script_piec_gaz.sh   # Skrypt sterowania Piecem CO (open / close)
+│   │   ├── script_pompa_obieg.sh # Skrypt sterowania pompą obiegową (open / close)
 │   │   ├── wentylacja.php       # Panel i API sterowania dwiema jednostkami wentylacji (10.0.0.8 i 10.0.0.9)
 │   │   └── rekuperacja.php      # Alias kompatybilności wstecznej (dołącza wentylacja.php)
 │   ├── pi1/                     # Serwer 10.0.0.4 (Piętro 1, Piwnica, Dach, Bramy, Wentylacja)
@@ -321,7 +347,8 @@ curl -s "http://10.0.0.118/wentylacja.php?action=slow"
 │   │   ├── wentylacja.php       # Panel i API sterowania dwiema jednostkami wentylacji (10.0.0.8 i 10.0.0.9)
 │   │   ├── rekuperacja.php      # Alias kompatybilności wstecznej (dołącza wentylacja.php)
 │   │   ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=14)
-│   │   ├── script_one.sh        # Skrypt impulsowy dla bram (z auto-powrotem 90s)
+│   │   ├── script_brama.sh      # Skrypt sterujący bramami posesji (GPIO 530 i 527)
+│   │   ├── script_one.sh        # Skrypt impulsowy legacy
 │   │   ├── gpio/
 │   │   │   └── relay_setup.conf # Konfiguracja fizycznych rejestrów PI1
 │   │   └── alexa/               # Skrypty integracji głosowej
@@ -337,7 +364,7 @@ curl -s "http://10.0.0.118/wentylacja.php?action=slow"
 
 ---
 
-## 6. Rejestr Konwersacji i Historia Zadań
+## 7. Rejestr Konwersacji i Historia Zadań
 
 Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń użytkownika, podjętych decyzji projektowych oraz wdrożonych funkcjonalności:
 
@@ -582,9 +609,55 @@ Poniższy rejestr przedstawia chronologiczny przebieg zrealizowanych poleceń u�
      - Zaktualizowano pliki na serwerach `10.0.0.4` oraz `10.0.0.5`.
      - Przetestowano załączanie i wyłączanie obwodów przez cURL i API – czasy odpowiedzi poniżej 15 ms, bezbłędny zapis do sysfs GPIO.
 
+### Krok 20: Dedykowane sterowanie bramami posesji (script_brama.sh) na PI1
+- **Polecenie użytkownika:**
+  - Utworzenie i podpięcie dedykowanego skryptu `script_brama.sh` dla Bramy wjazdowej i Bramy garażowej bez użycia `script.sh` czy `script_one.sh`.
+- **Wykonanie:**
+  - Wdrożono skrypt [`src/pi1/script_brama.sh`](file:///home/user/home-page/src/pi1/script_brama.sh) przyjmujący parametry: `$1` (nazwa), `$2` (akcja `open`/`close`/`stop`), `$3` (pin GPIO) i `$4` (czas impulsu, domyślnie 0.5s).
+  - Skonfigurowano `$GATE_CONFIG` w [`src/pi1/config.php`](file:///home/user/home-page/src/pi1/config.php) oraz zaktualizowano mechanizm wywołań w [`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php) i [`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php).
+
+### Krok 21: Usunięcie serwera Cubie, zmiana adresu IP PI0 na 10.0.0.2 i aktualizacja odnośników
+- **Polecenie użytkownika:**
+  - Usunięcie katalogu `src/cubie/` i wszystkich powiązanych odnośników na wszystkich serwerach.
+  - Zmiana adresu IP dla PI0 z `10.0.0.118` na `10.0.0.2`.
+  - Wdrożenie zaktualizowanej konfiguracji na serwery.
+- **Wykonanie:**
+  - Usunięto katalog `src/cubie/` za pomocą `git rm -rf`.
+  - Zaktualizowano adres `10.0.0.2` we wszystkich plikach `src/pi0/`, `src/pi1/`, `src/pi2/`.
+  - Wdrożono pliki na serwery PI0, PI1 i PI2 oraz zweryfikowano poprawność odpowiedzi.
+
+### Krok 22: Ujednolicenie nawigacji pod zakładką „Panele:” i nowe nazwy lokalizacji
+- **Polecenie użytkownika:**
+  - Zmiana układu odnośników na wzór strony wentylacji: usunięcie surowych linków na szczycie i pozostawienie kafelków nawigacyjnych.
+  - Zmiana etykiety z `Serwery:` na `Panele:`.
+  - Zmiana nazw: PI0 &rarr; Kotłownia, PI1 &rarr; Grzegorzka 8, PI2 &rarr; Grzegorzka 8A, Wentylacja &rarr; Wentylacja.
+  - Usunięcie adresów IP z opisu odnośników i wysłanie konfiguracji na serwery.
+- **Wykonanie:**
+  - Zunifikowano `<nav class="server-nav">` na szczycie kontenera na wszystkich 7 stronach.
+  - Wdrożono i przetestowano na serwerach PI0, PI1 i PI2.
+
+### Krok 23: Kolorystyka przycisków na serwerze Kotłownia oraz usunięcie akcji grupowych
+- **Polecenie użytkownika:**
+  - Zmiana kolorów klawiszy na serwerze Kotłownia na spójne z Grzegorzka 8: Włącz – niebieski, Wyłącz – czerwony.
+  - Usunięcie przycisków „Włącz wszystko” i „Wyłącz wszystko”.
+- **Wykonanie:**
+  - W [`src/pi0/index.php`](file:///home/user/home-page/src/pi0/index.php) zaktualizowano style CSS (`.btn-on` na `#2563eb`, `.btn-off` na `#ef4444`).
+  - Usunięto przyciski grupowe z nagłówka, pozostawiając przycisk „Odśwież”.
+  - Przesłano plik na serwer PI0 i potwierdzono działanie.
+
+### Krok 24: Zaktualizowanie script_brama.sh oraz zamiana przypisania GPIO dla bram na PI1
+- **Polecenia użytkownika:**
+  - Wdrożenie zaktualizowanego przez użytkownika skryptu `script_brama.sh`.
+  - Aktualizacja numerów GPIO w wywołaniach: Brama wjazdowa to GPIO 530, Brama garażowa to GPIO 527.
+- **Wykonanie:**
+  - Zaktualizowano `$GATE_CONFIG` oraz opisy w [`src/pi1/config.php`](file:///home/user/home-page/src/pi1/config.php): `brama_wjazd` &rarr; GPIO 530, `brama_garaz` &rarr; GPIO 527.
+  - Zaktualizowano logikę fallbacków w [`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php) oraz [`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php).
+  - Zaktualizowano komentarze w [`src/pi1/script_brama.sh`](file:///home/user/home-page/src/pi1/script_brama.sh).
+  - Wdrożono pliki na serwer PI1 (`10.0.0.4:/var/www/`), zweryfikowano uprawnienia (`chmod 775`) oraz potwierdzono działanie API.
+
 ---
 
-## 7. Kompletny Zapis Przebiegu Rozmowy i Poleceń Użytkownika
+## 8. Kompletny Zapis Przebiegu Rozmowy i Poleceń Użytkownika
 
 Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań użytkownika skierowanych w toku niniejszej sesji konwersacji, wraz z precyzyjnym opisem podjętych działań, decyzji architektonicznych i efektów wdrożeniowych.
 
@@ -666,4 +739,309 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
 - **Podjęte działania:**
   1. Zaktualizowano niniejszy plik [`GEMINI.md`](file:///home/user/home-page/GEMINI.md) o pełną dokumentację środowiska 4 serwerów, tabelę urządzeń kotłowni PI0, składnię poleceń cURL dla wszystkich urządzeń oraz kompletny chronologiczny rejestr zapytań użytkownika i wdrożonych rozwiązań.
 
+### Wpis 7: Podpięcie bezpośredniego sterowania bramami (script_brama.sh) na PI1
+- **Dokładne zapytanie użytkownika:**
+  > *„napisyalem skrypt dla PI1 dla brama "Brama wjazdowa" i "Brama garażowa" o nazwie script_brama.sh. Aby wywolac skryp nalezy wykonac dla brama wjazdowa sh brama.sh wjazdowa open 527 0.5 i dla Brama garażowa sh brama.sh wjazdowa open 530 0.5 (Uruchamia sie skrypt dokladnie tak samo jak script.sh). Zaktualizuj strone”*
+  > *„nie jest potrzebne ln. Nalzy tylko uruchamiac skrypt zgodnie ze skladnia ktora podalem i nie trzeba uzywac script.sh ani script_one.sh tylko bezposrednio skrypt script_brama.sh ktory ma byc podpiety z odpowiednimi parametrami pod klawsize dla bramy garazowej i wjazdowej”*
+- **Podjęte działania:**
+  1. **Aktualizacja skryptu [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh):**
+     - Dostosowano parsowanie argumentów CLI: `$1` (nazwa: `wjazdowa` / `garazowa`), `$2` (akcja: `open` / `close` / `stop`), `$3` (pin GPIO: `527` / `530`), `$4` (czas impulsu, domyślnie `0.5`).
+     - Obsłużono bezpośrednie załączanie pinu: stan niski `0`, odczekanie `0.5s` i powrót do `1`.
+     - Dodano synchronizację stanów w plikach `.state` (`wjazdowa.state`, `garazowa.state`, `relay_brama_wjazd.state`, `relay_brama_garaz.state`).
+  2. **Aktualizacja konfiguracji [`src/pi1/config.php`](file:///mnt/z/Vagrant/home-page/src/pi1/config.php):**
+     - Zdefiniowano `SCRIPT_BRAMA_PATH` wskazujący bezpośrednio na `script_brama.sh`.
+     - Zdefiniowano tablicę `$GATE_CONFIG` mapującą bramy na odpowiednie parametry (`wjazdowa` -> GPIO 527, `garazowa` -> GPIO 530, czas 0.5s).
+     - Zaktualizowano opisy sekcji bram posesji i aliasy pokoi.
+  3. **Aktualizacja paneli WWW [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) oraz [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php):**
+     - Zmodyfikowano funkcję `runScriptCommand()` – wykluczono używanie `script.sh` oraz `script_one.sh` dla bram i podpięto bezpośrednie wywoływanie `script_brama.sh` w tle:
+       - Brama wjazdowa: `nohup /bin/sh /var/www/script_brama.sh 'wjazdowa' [akcja] '527' '0.5' > /dev/null 2>&1 &`
+       - Brama garażowa: `nohup /bin/sh /var/www/script_brama.sh 'garazowa' [akcja] '530' '0.5' > /dev/null 2>&1 &`
+     - Zaktualizowano odpytywanie procesów w tle oraz sprawdzanie plików stanu.
+     - Dodano `script_brama.sh` do stopki diagnostycznej obu stron.
+  4. **Wdrożenie i weryfikacja na serwerze PI1 (10.0.0.4):**
+     - Zsynchronizowano pliki [`src/pi1/config.php`](file:///mnt/z/Vagrant/home-page/src/pi1/config.php), [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php) oraz [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh) do katalogu `/var/www/` na fizycznym serwerze `10.0.0.4`.
+     - Nadano uprawnienia wykonywalności (`chmod +x /var/www/script_brama.sh`).
+     - Przeprowadzono test składni PHP na serwerze PI1 (brak błędów).
+     - Przetestowano zapytanie statusowe API HTTP `curl -s "http://10.0.0.4/index.php?api=status"` – serwer Apache zwrócił poprawny JSON ze stanami wszystkich rolet i obu bram.
 
+
+
+
+### Wpis 8: Usunięcie serwera Cubie, zmiana adresu IP PI0 na 10.0.0.2 i wdrożenie multi-server
+- **Dokładne zapytanie użytkownika:**
+  > *„Usun calkowicie folder cubie w src oraz wszystkie odnosniki na wszystkich serwerach. Zmien adres IP dla PI0 z 10.0.0.118 na 10.0.0.2 i zaktualizuj wszystkie odnosniki oraz wyslij konfiguracje na serwer.”*
+- **Podjęte działania:**
+  1. **Całkowite usunięcie Cubie z repozytorium:**
+     - Usunięto katalog `src/cubie/` za pomocą `git rm -rf src/cubie`.
+     - Usunięto wszystkie odnośniki, etykiety i karty nawigacyjne serwera Cubie ze wszystkich plików we wszystkich panelach (`pi0`, `pi1`, `pi2`).
+  2. **Aktualizacja adresu IP serwera PI0 (10.0.0.118 -> 10.0.0.2):**
+     - Zweryfikowano fizyczne przypisanie adresu `10.0.0.2` do serwera PI0 (odpowiedź ping, system Raspbian z kernelem 6.18, hostname `pi0`).
+     - Zaktualizowano odnośniki, plakietki IP (`<span class="badge-ip">10.0.0.2</span>`) oraz linki nawigacyjne we wszystkich widokach:
+       - Serwer PI0: [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php), [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php), [`src/pi0/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi0/wentylacja.php).
+       - Serwer PI1: [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php), [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php), [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php).
+       - Serwer PI2: [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php), [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php).
+  3. **Wdrożenie na serwery produkcyjne:**
+     - **PI0 (`10.0.0.2`):**
+       - Wdrożono pliki `config.php`, `index.php`, `wentylacja.php`, `rekuperacja.php` do `/var/www/`.
+       - Uruchomiono i aktywowano usługę `/etc/init.d/raspberry` (`sudo update-rc.d raspberry defaults`) dla obsługi eksportu GPIO (526, 527, 530, 535) z uprawnieniami zapisu.
+     - **PI1 (`10.0.0.4`):**
+       - Wdrożono pliki `config.php`, `index.php`, `index_full.php`, `wentylacja.php`, `script_brama.sh` do `/var/www/`.
+     - **PI2 (`10.0.0.5`):**
+       - Wdrożono pliki `index.php`, `index_full.php` do `/var/www/`.
+  4. **Weryfikacja testowa:**
+     - Sprawdzono składnię PHP na wszystkich serwerach (`php -l`) – zero błędów składniowych.
+     - Sprawdzono odpowiedzi JSON API:
+       - PI0 Kotłownia (`curl -s "http://10.0.0.2/index.php?api=status"`) – `success: true`, statusy pieca CWU, CO i pompy.
+       - PI0 Wentylacja (`curl -s "http://10.0.0.2/wentylacja.php?action=status"`) – centrale 10.0.0.8 i 10.0.0.9 dostępne.
+       - PI1 Rolety/Bramy (`curl -s "http://10.0.0.4/index.php?api=status"`) – `success: true`, wszystkie sekcje i bramy aktywne.
+       - PI2 Rolety (`curl -s "http://10.0.0.5/index.php?api=status"`) – `success: true`, rolety Piętro 2 i Parter aktywne.
+
+
+### Wpis 9: Ujednolicenie nawigacji, zmiana etykiet na „Panele” i nowe nazwy lokalizacji
+- **Dokładne zapytanie użytkownika:**
+  > *„Chcialbym zmienic na wszystkich serwerach i na wszystkich stronach index.php i index_full.php i wentylacja.php układ odnosnikow. Chcialbym aby wygladalo to jak na stronie wentylacja i mam tu na mysli zakładke Panele. Usun linki na szczycie i zostaw jak jest w blokach Serwery i Panele. Zmien nazwe wszedzie z Serwery na Panele i zmien nazwy odnosnikow:*
+  > *- PI0 na Kotlownia*
+  > *- PI1 na Grzegorzka 8*
+  > *- PI2 na Grzegorzka 8A*
+  > *Usun adres ip z opisu odnosnikow. Wyslij konfiguracje na serwery.”*
+- **Podjęte działania:**
+  1. **Usunięcie surowych linków na szczycie strony:**
+     - Usunięto bloki `<div class="server-links">...</div>` ze wszystkich widoków na wszystkich serwerach.
+  2. **Ujednolicenie paska nawigacji „Panele:”:**
+     - Przeniesiono belkę `<nav class="server-nav">` na szczyt strony (tuż po otwarciu kontenera `.container`, powyżej `<header>`) na wszystkich stronach (`index.php`, `index_full.php`, `wentylacja.php`).
+     - Zmieniono etykietę nagłówka sekcji z `Serwery:` na **`Panele:`**.
+     - Wprowadzono nowe, przyjazne nazwy odnośników bez surowych adresów IP w plakietkach:
+       - PI0 &rarr; **`Kotłownia`** (ikona kotła / płomienia)
+       - PI1 &rarr; **`Grzegorzka 8`** (ikona rolet / okna)
+       - PI2 &rarr; **`Grzegorzka 8A`** (ikona domu)
+       - Wentylacja &rarr; **`Wentylacja`** (ikona wentylatora)
+     - Usunięto wszystkie elementy `<span class="badge-ip">...</span>` z kafelków paneli.
+     - Dodano klasę aktywną `.server-nav-link.active` wyróżniającą aktualnie otwarty panel na niebiesko.
+  3. **Wdrożenie na serwery produkcyjne:**
+     - **PI0 (`10.0.0.2`):** wdrożono `index.php` oraz `wentylacja.php` do `/var/www/`.
+     - **PI1 (`10.0.0.4`):** wdrożono `index.php`, `index_full.php` oraz `wentylacja.php` do `/var/www/`.
+     - **PI2 (`10.0.0.5`):** wdrożono `index.php` oraz `index_full.php` do `/var/www/`.
+  4. **Weryfikacja testowa:**
+     - Sprawdzono składnię PHP na wszystkich 3 maszynach (`php -l`) – 0 błędów.
+     - Sprawdzono poprawne generowanie kodu HTML przez serwery Apache (`curl` na port 80 dla wszystkich hostów).
+     - Przetestowano odpowiedzi JSON API (`api=status`) na wszystkich serwerach – pełna sprawność.
+
+
+### Wpis 10: Aktualizacja kolorystyki przycisków i usunięcie akcji grupowych na serwerze Kotłownia
+- **Dokładne zapytanie użytkownika:**
+  > *„zmien kolory klawiszy na serwerze kotlownia na takie jakie sa Grzegorzka 8 na wlacz niebieski i wylacz czerwony. Usun opcje wlacz wszystko i wylacz wszystko.”*
+- **Podjęte działania:**
+  1. **Zmiana kolorów przycisków sterowania w [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php):**
+     - Przycisk **Włącz** (`.btn-on`): zmieniono kolorystykę z zielonej na **niebieską** (`#2563eb`, hover `#1d4ed8`, active glow `#60a5fa`) identycznie jak w panelu Grzegorzka 8.
+     - Przycisk **Wyłącz** (`.btn-off`): zmieniono kolorystykę na **czerwoną** (`#ef4444`, hover `#dc2626`, active glow `#f87171`) identycznie jak przycisk Stop w panelu Grzegorzka 8.
+  2. **Usunięcie przycisków globalnych:**
+     - Usunięto przyciski „Włącz wszystko” oraz „Wyłącz wszystko” z nagłówka (`.header-actions`).
+     - Zachowano przycisk „Odśwież” do natychmiastowego odpytania stanów urządzeń.
+  3. **Wdrożenie i weryfikacja na serwerze PI0 (10.0.0.2):**
+     - Przesłano zaktualizowany plik `src/pi0/index.php` do `/var/www/index.php` na serwerze PI0.
+     - Sprawdzono składnię PHP (`php -l /var/www/index.php`) – 0 błędów.
+     - Zweryfikowano wyrenderowany kod HTML przez `curl` – przyciski Włącz (niebieski) i Wyłącz (czerwony) oraz brak przycisków włącz/wyłącz wszystko.
+
+
+### Wpis 11: Wdrożenie zaktualizowanego skryptu script_brama.sh na serwerze PI1 (Grzegorzka 8)
+- **Dokładne zapytanie użytkownika:**
+  > *„zaktualizowalem skryp script_brama.sh wyslij go na serwer”*
+- **Podjęte działania:**
+  1. **Analiza zmian w skrypcie [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh):**
+     - Użycie shebangu `#!/bin/sh` z elastycznymi zmiennymi domyślnymi `${GPIO_DIR:-/var/www/gpio}` oraz `${WWW_DIR:-/var/www}`.
+     - Przyjmowanie 4 parametrów wywołania: `$1` (nazwa bramy, np. `wjazdowa` / `garazowa`), `$2` (akcja `open`/`close`/`stop`), `$3` (numer GPIO, np. `527` / `530`) oraz `$4` (czas impulsu, domyślnie `TIME=${4:-0.5}`).
+     - Funkcja `F_EXEC` bezpośrednio sterująca linią przekaźnika GPIO impulsem stanu niskiego (`0 > gpio$RELAY`), uśpieniem `sleep $TIME` i powrotem do stanu wysokiego (`1 > gpio$RELAY`).
+     - Zapis stanu do pliku `${GPIO_DIR}/${CONF_NAME}.state` dla podglądu statusu w panelu WWW.
+  2. **Wdrożenie na serwer produkcyjny PI1 (`10.0.0.4`):**
+     - Przesłano plik `src/pi1/script_brama.sh` do `/var/www/script_brama.sh` na serwerze PI1 (`10.0.0.4`).
+     - Ustawiono odpowiednie uprawnienia wykonywania (`chmod 775 /var/www/script_brama.sh`).
+  3. **Weryfikacja spójności i działania:**
+     - Porównano binarnie/tekstowo plik lokalny z plikiem na serwerze PI1 (`diff -u`) – pliki są w 100% identyczne.
+     - Sprawdzono poprawność zwracania statusów przez panel WWW PI1 (`http://10.0.0.4/index.php?api=status`) – sekcja `brama_wjazd` i `brama_garaz` poprawnie zintegrowane.
+
+
+### Wpis 12: Aktualizacja przypisania GPIO dla bram na serwerze PI1 (Wjazdowa: GPIO 530, Garażowa: GPIO 527)
+- **Dokładne zapytanie użytkownika:**
+  > *„zaktualizuj w poleceniu dla gpio dla serwera PI1 grama wjazdowa to gpio530 natomiast brama garazowa to gpio527”*
+- **Podjęte działania:**
+  1. **Zamiana numerów pinów GPIO w konfiguracji [`src/pi1/config.php`](file:///mnt/z/Vagrant/home-page/src/pi1/config.php):**
+     - **Brama wjazdowa (`brama_wjazd`, `relay_brama_wjazd`, `wjazdowa`):** zmiana z `527` na **`530`**.
+     - **Brama garażowa (`brama_garaz`, `relay_brama_garaz`, `garazowa`):** zmiana z `530` na **`527`**.
+     - Zaktualizowano opisy kart i sekcji w `$FLOORS`, `$ROOMS` oraz `$INDIVIDUAL_ROOMS`.
+  2. **Aktualizacja logiki wykonawczej w [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) i [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php):**
+     - Fallback `$gateGpio`: przypisanie `530` dla bramy wjazdowej oraz `527` dla bramy garażowej.
+     - Parametry domyślne `$bramaCfg`: `gpio => 530` dla wjazdowej oraz `gpio => 527` dla garażowej.
+     - Zaktualizowano komentarze wywołań CLI:
+       - `sh script_brama.sh wjazdowa open 530 0.5`
+       - `sh script_brama.sh garazowa open 527 0.5`
+  3. **Aktualizacja komentarzy w [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh):**
+     - Zaktualizowano przykładowe wywołania z nowymi pinami GPIO (`530` i `527`).
+  4. **Wdrożenie na serwer PI1 (`10.0.0.4`):**
+     - Przesłano `config.php`, `index.php`, `index_full.php` oraz `script_brama.sh` do `/var/www/`.
+     - Zweryfikowano poprawność składni PHP (`php -l`) oraz odpowiedzi endpointu API (`http://10.0.0.4/index.php?api=status`).
+
+
+### Wpis 13: Zapis i kompleksowa synchronizacja dokumentacji GEMINI.md
+- **Dokładne zapytanie użytkownika:**
+  > *„zapisz cala konwersacje do GEMINI.md”*
+- **Podjęte działania:**
+  1. **Aktualizacja rejestru zadań (Kroki 1–24):** Uzupełniono pełną chronologię wykonanych prac w sekcji 7, w tym wyodrębnienie serwera PI0 pod adresem `10.0.0.2`, usunięcie Cubie, unifikację paska „Panele:”, dostosowanie kolorów Kotłowni oraz pełną konfigurację bram posesji ze skryptem `script_brama.sh` (GPIO 530 i 527).
+  2. **Aktualizacja chronologicznego rejestru zapytań użytkownika (Wpisy 1–13):** Zarejestrowano dosłowne komendy użytkownika, podjęte kroki realizacyjne, analizę kodu oraz weryfikację na działających serwerach Raspberry Pi.
+  3. **Weryfikacja tabel i instrukcji cURL:** Zaktualizowano wszystkie zestawienia adresów, numery pinów GPIO, parametry skryptów powłoki oraz przykłady poleceń `curl` dla PI0, PI1 i PI2.
+
+
+### Wpis 14: Wdrożenie zaktualizowanych skryptów script.sh na serwery PI1 i PI2
+- **Dokładne zapytanie użytkownika:**
+  > *„poprawilem skrypty script.sh dla pi1 i pi2 wyslij je na serwer”*
+  > *„teraz sa uprawnienia do skopiowania danych - skopiuj skrypty”*
+- **Podjęte działania:**
+  1. **Analiza zmian w skryptach [`src/pi1/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script.sh) i [`src/pi2/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi2/script.sh):**
+     - Ujednolicenie i optymalizacja sprawdzania zasilania modułów przekaźników (`F_RELAY_POWER_CHECK`, `F_RELAY_POWER_ON`, `F_RELAY_POWER_OFF`).
+     - Bezpieczne wyłączanie zasilania z weryfikacją znacznika procesu w `${RELAY_POWER_FILE}`, aby nie zakłócać pracy innych jednocześnie przełączanych rolet.
+     - Czyszczenie i ulepszenie procedur zabijania starych procesów (`F_KILL_PROCESS_OPEN`, `F_KILL_PROCESS_CLOSE`).
+     - Poprawa komunikatów diagnostycznych i składni `Usage: {open|close|stop}`.
+  2. **Wdrożenie na serwer PI1 (`10.0.0.4`):**
+     - Skopiowano [`src/pi1/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script.sh) do `/var/www/script.sh` (uprawnienia `775`, `rwxrwxr-x`).
+     - Zweryfikowano zgodność z plikiem źródłowym (`diff -u` &rarr; 0 różnic).
+  3. **Wdrożenie na serwer PI2 (`10.0.0.5`):**
+     - Skopiowano [`src/pi2/script.sh`](file:///mnt/z/Vagrant/home-page/src/pi2/script.sh) do `/var/www/script.sh` (uprawnienia `775`, `rwxrwxr-x`).
+     - Zweryfikowano zgodność z plikiem źródłowym (`diff -u` &rarr; 0 różnic).
+  4. **Weryfikacja testowa:**
+     - Przetestowano odpowiedzi JSON API na serwerach PI1 i PI2 (`http://10.0.0.4/index.php?api=status` oraz `http://10.0.0.5/index.php?api=status`) – oba panele działają prawidłowo (`success: true`).
+
+
+### Wpis 15: Aktualizacja parametrów wywołania script_brama.sh (relay_brama_wjazdowa i relay_brama_garazowa)
+- **Dokładne zapytanie użytkownika:**
+  > *„zaktualizuj wywolanie dla brama wjazdowa wywolanie powinno byc sh script_brama.sh relay_brama_wjazdowa open 530 0.5 natomiast dla brama garazowa sh script_brama.sh relay_brama_garazowa open 527 0.5”*
+- **Podjęte działania:**
+  1. **Aktualizacja parametrów w [`src/pi1/config.php`](file:///mnt/z/Vagrant/home-page/src/pi1/config.php):**
+     - Zmiana parametru pierwszego (`param`) w `$GATE_CONFIG`:
+       - Brama wjazdowa: `'relay_brama_wjazdowa'` (GPIO 530, czas 0.5s).
+       - Brama garażowa: `'relay_brama_garazowa'` (GPIO 527, czas 0.5s).
+     - Dodano aliasy pokoi: `'relay_brama_wjazdowa' => 'brama_wjazd'`, `'relay_brama_garazowa' => 'brama_garaz'`.
+  2. **Aktualizacja mechanizmu wykonawczego i odczytu stanów w [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) i [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php):**
+     - Uruchamianie komend CLI w tle:
+       - `nohup /bin/sh /var/www/script_brama.sh relay_brama_wjazdowa [akcja] 530 0.5 > /dev/null 2>&1 &`
+       - `nohup /bin/sh /var/www/script_brama.sh relay_brama_garazowa [akcja] 527 0.5 > /dev/null 2>&1 &`
+     - Zapis i odczyt plików stanów `.state` dla obu wariantów nazewniczych (`relay_brama_wjazdowa.state`, `relay_brama_wjazd.state`, `brama_wjazd.state` oraz analogicznie dla bramy garażowej).
+  3. **Aktualizacja komentarzy w [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh):**
+     - Nowe przykłady wywołań:
+       - `sh script_brama.sh relay_brama_wjazdowa open 530 0.5`
+       - `sh script_brama.sh relay_brama_garazowa open 527 0.5`
+  4. **Wdrożenie na serwer PI1 (`10.0.0.4`):**
+     - Przesłano `config.php`, `index.php`, `index_full.php` oraz `script_brama.sh` do `/var/www/`.
+     - Zweryfikowano działanie API (`http://10.0.0.4/index.php?api=status`).
+
+
+### Wpis 16: Diagnoza i rozwiązanie problemu wywołań script_brama.sh dla bram na PI1
+- **Dokładne zapytanie użytkownika:**
+  > *„Ponacisnieciu klawisza "Brama wjazdowa" nie widze w systemie wywolania proces sh script_brama.sh relay_brama_wjazdowa open 530 0.5”*
+- **Zidentyfikowane przyczyny:**
+  1. **Czas życia procesu (zaledwie 0.5 sekundy):**
+     - Skrypt `script_brama.sh` wykonuje impuls trwający 0.5s (`sleep 0.5`). Ręczne wywołanie `ps aux | grep script_brama` w terminalu SSH po kliknięciu w przeglądarce nie pozwalało go zauważyć, ponieważ proces kończy się natychmiast (po 500 ms).
+  2. **Uprawnienia do plików GPIO sysfs oraz `.state`:**
+     - Linie GPIO w `/sys/class/gpio/gpio530/value` i `/sys/class/gpio/gpio527/value` miały uprawnienia `755` (`-rwxr-xr-x 1 root gpio`), przez co proces serwera Apache (`www-data`) otrzymywał błąd `cannot create /var/www/gpio/gpio530: Permission denied`.
+     - Plik `/var/www/gpio/relay_brama_wjazdowa.state` należał do `root:root` z uprawnieniami `644`, blokując zapis stanu przez skrypt.
+  3. **Mapowanie akcji 'toggle' na 'close':**
+     - Przy stanie otwartym naciśnięcie klawisza w formularzu przesyłało akcję `toggle`, którą backend zamieniał na `close`, przez co w tle uruchamiane było `close` zamiast `open`.
+- **Wdrożone rozwiązania:**
+  1. **Poprawa uprawnień systemowych GPIO na PI1:**
+     - Ustawiono `chmod 666 /sys/class/gpio/gpio*/value` oraz zaktualizowano skrypt startowy `/etc/init.d/raspberry`.
+     - Usunięto i odtworzono pliki `.state` dla bram w `/var/www/gpio/` z uprawnieniami zapisu `chmod 666`.
+  2. **Wymuszenie akcji 'open' dla bram posesji:**
+     - W [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) zaktualizowano formularz i logikę JavaScript/PHP: naciśnięcie klawisza bramy zawsze wysyła bezpośrednio akcję `open`, wywołując `sh script_brama.sh relay_brama_wjazdowa open 530 0.5`.
+  3. **Dedykowany rejestr logów wywołań w czasie rzeczywistym:**
+     - Dodano automatyczne logowanie wywołań zarówno po stronie PHP w `runScriptCommand()`, jak i bezpośrednio w [`src/pi1/script_brama.sh`](file:///mnt/z/Vagrant/home-page/src/pi1/script_brama.sh) do pliku `/var/www/gpio/script_brama.log` wraz ze znacznikiem czasu i numerem PID procesu.
+     - Użytkownik może w każdej chwili sprawdzić historię i moment każdego wywołania poleceniem:
+       ```bash
+       cat /var/www/gpio/script_brama.log
+       # lub na żywo:
+       tail -f /var/www/gpio/script_brama.log
+       ```
+  4. **Weryfikacja produkcyjna na serwerze PI1 (`10.0.0.4`):**
+     - Przetestowano wywołania przez panel WWW i cURL – w logu `/var/www/gpio/script_brama.log` natychmiast rejestrowane są wpisy PHP exec oraz PID procesu skryptu powłoki.
+
+
+### Wpis 17: Zmiana sterowania Pompą Obiegową na dedykowany skrypt `script_pompa_obieg.sh` (PI0)
+- **Dokładne zapytanie użytkownika:**
+  > *„Dla pi0 zmien wywolanie "Pompa obiegowa" na wywolanie skryptu script_pompa_obieg.sh open jako wlacz close jako wylacz”*
+- **Podjęte działania:**
+  1. **Konfiguracja skryptu [`src/pi0/script_pompa_obieg.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_pompa_obieg.sh):**
+     - Obsłużono wywołania:
+       - `sh script_pompa_obieg.sh open` – włączenie pompy: zapisuje `1` do `/var/www/gpio/relay_pompa_obiegowa.state` oraz `0` do `/var/www/gpio/gpio535`.
+       - `sh script_pompa_obieg.sh close` – wyłączenie pompy: zapisuje `0` do `/var/www/gpio/relay_pompa_obiegowa.state` oraz `1` do `/var/www/gpio/gpio535`.
+       - `sh script_pompa_obieg.sh stop` – zatrzymanie pompy: zapisuje `2` do `/var/www/gpio/relay_pompa_obiegowa.state` oraz `1` do `/var/www/gpio/gpio535`.
+     - Zapewniono obsługę zarówno bezpośredniej składni `sh script_pompa_obieg.sh open`, jak i `sh script_pompa_obieg.sh relay_pompa_obiegowa open`.
+     - Nadano uprawnienia wykonywalności (`chmod +x`).
+  2. **Aktualizacja backendu w [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php):**
+     - Dodano stałą `SCRIPT_POMPA_PATH` oraz pomocniczą funkcję `getScriptPompaPath()`.
+     - Zaktualizowano definicję urządzenia `pompa` w `$DEVICES`: przypisano `script => 'script_pompa_obieg.sh'`, `state_file => GPIO_DIR . '/relay_pompa_obiegowa.state'`, `gpio => '535'`, `pin => '23'`.
+     - W `setDeviceState`: dla urządzenia `pompa` (lub zdefiniowanego `script`) akcje włączania (`on`, `1`, `open`, `start`) wykonują `/bin/sh script_pompa_obieg.sh open`, a wyłączania (`off`, `0`, `close`, `stop`) wykonują `/bin/sh script_pompa_obieg.sh close`.
+     - Dodano automatyczny rejestr wywołań skryptu pompy w `/var/www/gpio/script_pompa.log`.
+     - W `getDeviceState`: zaimplementowano priorytetowy odczyt stanu z dedykowanego pliku `relay_pompa_obiegowa.state` (`1` = włączony, `0`/`2` = wyłączony) z zachowaniem pełnego fallbacku do pliku GPIO (`gpio535` / `gpio530`).
+  3. **Aktualizacja interfejsu WWW w [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php):**
+     - Karta urządzenia wyświetla plakietkę wskazującą skrypt wykonawczy: `script_pompa_obieg.sh • GPIO 535 (pin 23)`.
+  4. **Weryfikacja i testy:**
+     - Przeprowadzono testy syntaktyczne PHP (`php -l`).
+     - Przetestowano asercjami pełne cykle przejść stanów włącz/wyłącz przez `setDeviceState` i `getDeviceState`.
+
+
+### Wpis 18: Zmiana sterowania Piecem CWU i Piecem CO na dedykowane skrypty bash (PI0)
+- **Dokładne zapytanie użytkownika:**
+  > *„popraw rowniez dla klawisza "Piec Gazowy CO" aby uzywal skryptu script_piec_gaz.sh oraz "Piec Gazowy CWU" aby uzywal skryptu script_piec_gaz_cwu.sh”*
+- **Podjęte działania:**
+  1. **Aktualizacja skryptów wykonawczych:**
+     - [`src/pi0/script_piec_gaz.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz.sh) (Piec CO):
+       - Przekaźnik: GPIO 536 (pin 24), Zasilanie szyny przekaźników: GPIO 519 (pin 7).
+       - Obsługa wywołań: `open` (włącz: stan `1` w `relay_piec_gaz.state` oraz `piec_co.state`, załączenie zasilania szyny GPIO 519 i przekaźnika GPIO 536 `0`), `close` (wyłącz: stan `0`, rozłączenie przekaźnika `1`), `stop` (stop: stan `2`, wyłączenie szyny zasilania `1`).
+       - Elastyczna obsługa składni: `sh script_piec_gaz.sh open` oraz `sh script_piec_gaz.sh relay_piec_gaz open`.
+     - [`src/pi0/script_piec_gaz_cwu.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz_cwu.sh) (Piec CWU):
+       - Przekaźnik: GPIO 537 (pin 25), Zasilanie szyny przekaźników: GPIO 519 (pin 7).
+       - Obsługa wywołań: `open` (włącz: stan `1` w `relay_piec_gaz_cwu.state` oraz `piec_cwu.state`, załączenie zasilania szyny GPIO 519 i przekaźnika GPIO 537 `0`), `close` (wyłącz: stan `0`, rozłączenie przekaźnika `1`), `stop` (stop: stan `2`, wyłączenie szyny zasilania `1`).
+       - Elastyczna obsługa składni: `sh script_piec_gaz_cwu.sh open` oraz `sh script_piec_gaz_cwu.sh relay_piec_gaz_cwu open`.
+     - Nadano uprawnienia wykonywalności (`chmod +x`).
+  2. **Aktualizacja backendu w [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php):**
+     - Dodano stałe `SCRIPT_PIEC_CWU_PATH`, `SCRIPT_PIEC_CO_PATH` oraz uogólniono funkcję `getDeviceScriptPath($scriptName)`.
+     - Zaktualizowano definicję `piec_cwu` w `$DEVICES`: `script => 'script_piec_gaz_cwu.sh'`, `gpio => '537'`, `pin => '25'`, `state_file => GPIO_DIR . '/relay_piec_gaz_cwu.state'`.
+     - Zaktualizowano definicję `piec_co` w `$DEVICES`: `script => 'script_piec_gaz.sh'`, `gpio => '536'`, `pin => '24'`, `state_file => GPIO_DIR . '/relay_piec_gaz.state'`.
+     - W `setDeviceState`: wszystkie 3 urządzenia kotłowni (`piec_cwu`, `piec_co`, `pompa`) wykonują swoje dedykowane skrypty powłoki z akcją `open` (włącz) lub `close` (wyłącz).
+     - W `getDeviceState`: zoptymalizowano odczyt stanów z dedykowanych plików `.state` z fallbackami do plików GPIO.
+  3. **Aktualizacja interfejsu WWW w [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php):**
+     - Karta Pieca CWU wskazuje: `script_piec_gaz_cwu.sh • GPIO 537 (pin 25)`.
+     - Karta Pieca CO wskazuje: `script_piec_gaz.sh • GPIO 536 (pin 24)`.
+     - Karta Pompy wskazuje: `script_pompa_obieg.sh • GPIO 535 (pin 23)`.
+  4. **Weryfikacja i testy:**
+     - Wykonano pełny skrypt testowy weryfikujący asercjami przejścia stanów (włącz/wyłącz/odczyt) dla wszystkich 3 obwodów oraz funkcje masowe `setAllDevicesState('on')` i `setAllDevicesState('off')`. Wszystkie testy zakończone wynikiem pozytywnym.
+
+
+### Wpis 19: Pełna synchronizacja i archiwizacja konwersacji w GEMINI.md
+- **Dokładne zapytanie użytkownika:**
+  > *„zapisz cala konwersacje do GEMINI.md”*
+- **Podjęte działania:**
+  1. **Audyt i synchronizacja dokumentacji [`GEMINI.md`](file:///mnt/z/Vagrant/home-page/GEMINI.md):**
+     - **Sekcja 1 (Architektura Środowiska Multi-Server):** Zaktualizowano opis serwera PI0 – pełna obsługa 3 skryptów bash (`script_piec_gaz_cwu.sh`, `script_piec_gaz.sh`, `script_pompa_obieg.sh`) oraz linii szyny zasilania przekaźników (GPIO 519).
+     - **Sekcja 4 (Serwer PI0: Sterowanie Kotłownią i Wentylacją):** Zaktualizowano tabelę urządzeń PI0, uwzględniając numery GPIO (537, 536, 535, 519), numery fizycznych pinów (25, 24, 23, 7) oraz powiązane pliki stanów `.state` w `/var/www/gpio/`.
+     - **Sekcja 5.D (Sterowanie Kotłownią na serwerze PI0):** Zamieszczono pełny spis komend `curl` oraz konsoli bash dla Pieca CWU, Pieca CO oraz Pompy obiegowej, w tym sterowania grupowego `ALL` i parametrów legacy (`sw1`, `sw2`, `sw3`).
+     - **Sekcja 6 (Struktura Plików w Repozytorium):** Uzupełniono strukturę katalogu `src/pi0/` o skrypty wykonawcze `script_piec_gaz_cwu.sh`, `script_piec_gaz.sh` i `script_pompa_obieg.sh`.
+     - **Sekcja 7 (Rejestr Konwersacji i Historia Zadań):** Zarchiwizowano kompletny rejestr wszystkich wykonanych kroków (Wpisy 1–19) z dokładnymi zapytaniami użytkownika, wprowadzonymi zmianami w kodzie i wynikami testów.
+
+
+### Wpis 20: Wdrożenie zaktualizowanej konfiguracji i skryptów na serwer PI0 (10.0.0.2) oraz weryfikacja PI1 i PI2
+- **Dokładne zapytanie użytkownika:**
+  > *„wyslij nowa konfiguracje na serwer pi0 i jesli jest cos nowego na pi1 i pi2”*
+- **Podjęte działania i wyniki wdrożenia:**
+  1. **Audyt spójności plików na serwerach PI1 (`10.0.0.4`) oraz PI2 (`10.0.0.5`):**
+     - Porównano pliki w `/var/www/` na PI1 (`config.php`, `index.php`, `index_full.php`, `script.sh`, `script_brama.sh`, `script_one.sh`, `wentylacja.php`) z lokalnym katalogiem `src/pi1/` &rarr; **0 różnic (pliki w 100% zsynchronizowane)**.
+     - Porównano pliki w `/var/www/` na PI2 (`config.php`, `index.php`, `index_full.php`, `script.sh`) z lokalnym katalogiem `src/pi2/` &rarr; **0 różnic (pliki w 100% zsynchronizowane)**.
+  2. **Wdrożenie na serwer PI0 (`10.0.0.2`):**
+     - Przesłano przez `scp` pliki:
+       - [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php) &rarr; `/var/www/config.php`
+       - [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php) &rarr; `/var/www/index.php`
+       - [`src/pi0/script_piec_gaz_cwu.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz_cwu.sh) &rarr; `/var/www/script_piec_gaz_cwu.sh`
+       - [`src/pi0/script_piec_gaz.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz.sh) &rarr; `/var/www/script_piec_gaz.sh`
+       - [`src/pi0/script_pompa_obieg.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_pompa_obieg.sh) &rarr; `/var/www/script_pompa_obieg.sh`
+     - Ustawiono uprawnienia wykonywalności (`chmod 775 /var/www/script_*.sh`) oraz właściciela `www-data:www-data`.
+  3. **Weryfikacja produkcyjna:**
+     - Sprawdzono składnię PHP na serwerze PI0 (`php -l`) &rarr; 0 błędów.
+     - Przetestowano endpoint API (`http://10.0.0.2/index.php?api=status`) &rarr; zwrócono pełną strukturę urządzeń ze statusami na żywo dla Pieca CWU, Pieca CO oraz Pompy obiegowej.
+     - Potwierdzono poprawne działanie API na PI1 (`10.0.0.4`) i PI2 (`10.0.0.5`).

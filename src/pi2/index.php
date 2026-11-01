@@ -648,6 +648,12 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             transform: translateY(-1px);
         }
 
+        .server-nav-link.active {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+
         .server-nav-link svg {
             width: 15px;
             height: 15px;
@@ -1313,6 +1319,32 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
 <div class="toast-container" id="toastContainer"></div>
 
 <div class="container">
+    <!-- Belka przełączania paneli -->
+    <nav class="server-nav">
+        <div class="server-nav-label">
+            <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <span>Panele:</span>
+        </div>
+        <div class="server-nav-links">
+            <a href="http://10.0.0.2/" class="server-nav-link" title="Sterowanie kotłownią">
+                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
+                <span>Kotłownia</span>
+            </a>
+            <a href="http://10.0.0.4/" class="server-nav-link" title="Sterowanie roletami i bramami - Grzegorzka 8">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+                <span>Grzegorzka 8</span>
+            </a>
+            <a href="index.php" class="server-nav-link active" title="Sterowanie roletami - Grzegorzka 8A">
+                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                <span>Grzegorzka 8A</span>
+            </a>
+            <a href="http://10.0.0.4/wentylacja.php" class="server-nav-link" title="Sterowanie wentylacją">
+                <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+                <span>Wentylacja</span>
+            </a>
+        </div>
+    </nav>
+
     <header>
         <div class="header-title">
             <h1>
@@ -1336,36 +1368,6 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
             </button>
         </div>
     </header>
-
-    <!-- Belka przełączania serwerów (PI1, PI2, Cubie) -->
-    <nav class="server-nav">
-        <div class="server-nav-label">
-            <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <span>Serwery:</span>
-        </div>
-        <div class="server-nav-links">
-            <a href="http://10.0.0.118/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU i pompą na serwerze PI0">
-                <svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2 0 .74-.4 1.38-1 1.72v1.56a5 5 0 0 1 4 4.9v2.82l1.7 1.7A1 1 0 0 1 18 18H6a1 1 0 0 1-.7-1.7l1.7-1.7v-2.82a5 5 0 0 1 4-4.9V5.72C10.4 5.38 10 4.74 10 4c0-1.1.9-2 2-2z"/><path d="M12 9a3 3 0 0 0-3 3v3h6v-3a3 3 0 0 0-3-3z"/></svg>
-                <span>PI0: Kotłownia (Piec CWU / CO / Pompa)</span>
-                <span class="badge-ip">10.0.0.118</span>
-            </a>
-            <a href="http://10.0.0.4/" class="server-nav-link" title="Przejdź do sterowania roletami Salon / Piwnica / Bramy na serwerze PI1">
-                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                <span>PI1: Rolety Salon / Piwnica / Bramy</span>
-                <span class="badge-ip">10.0.0.4</span>
-            </a>
-            <a href="http://10.0.0.2/" class="server-nav-link" title="Przejdź do sterowania piecem, CWU, pompami i rekuperacją na serwerze Cubie">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                <span>Cubie: Kotłownia / Wentylacja</span>
-                <span class="badge-ip">10.0.0.2</span>
-            </a>
-            <a href="http://10.0.0.4/wentylacja.php" class="server-nav-link" title="Przejdź do sterowania wentylacją (10.0.0.8, 10.0.0.9) na serwerze PI1">
-                <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
-                <span>PI1: Wentylacja (2x)</span>
-                <span class="badge-ip">10.0.0.8 &bull; 10.0.0.9</span>
-            </a>
-        </div>
-    </nav>
 
     <nav class="view-nav">
         <div class="nav-tabs-group">
