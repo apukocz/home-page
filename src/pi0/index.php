@@ -14,11 +14,20 @@ require_once __DIR__ . '/config.php';
 // Obsługa API (JSON) oraz zapytań AJAX / REST / Legacy
 // =============================================================================
 
-// 1. Odpytanie o aktualny status urządzeń (?api=status)
+// 1. Odpytanie o temperatury z czujników 1-Wire DS18B20 (?api=temperatures lub ?api=temp)
+if (isset($_GET['api']) && in_array(strtolower($_GET['api']), ['temperatures', 'temp', 'temps'], true)) {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    echo json_encode(getAllTemperatures(), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    exit;
+}
+
+// 2. Odpytanie o aktualny status urządzeń i temperatury (?api=status)
 if (isset($_GET['api']) && $_GET['api'] === 'status') {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-cache, no-store, must-revalidate');
     $statuses = getAllDevicesStatus();
+    $temperatures = getAllTemperatures();
     $activeCount = 0;
     foreach ($statuses as $s) {
         if (!empty($s['is_on'])) {
@@ -30,7 +39,8 @@ if (isset($_GET['api']) && $_GET['api'] === 'status') {
         'timestamp'    => time(),
         'active_count' => $activeCount,
         'total_count'  => count($statuses),
-        'devices'      => $statuses
+        'devices'      => $statuses,
+        'temperatures' => $temperatures
     ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
@@ -79,6 +89,7 @@ if ($targetDevice && $action) {
 }
 
 $devicesStatus = getAllDevicesStatus();
+$temperaturesData = getAllTemperatures();
 $activeCount = 0;
 foreach ($devicesStatus as $s) {
     if (!empty($s['is_on'])) $activeCount++;
@@ -688,6 +699,360 @@ foreach ($devicesStatus as $s) {
             border-left: 4px solid var(--danger);
         }
 
+        /* Sekcje i nagłówki sekcji */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 22px 0 12px 0;
+            padding: 0 4px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.08rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.01em;
+        }
+
+        .section-title svg {
+            color: var(--primary);
+            stroke-width: 2.2;
+            flex-shrink: 0;
+        }
+
+        .section-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+            flex-wrap: wrap;
+        }
+
+        .badge-tech {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+
+        .badge-active-sensors {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.74rem;
+            font-weight: 600;
+        }
+
+        .sensor-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #64748b;
+        }
+
+        .sensor-dot.online {
+            background: #10b981;
+            box-shadow: 0 0 6px #10b981;
+            animation: pulse-dot 2s infinite;
+        }
+
+        /* Siatka 3 grup temperatur: CO, Gaz, CWU */
+        .temp-groups-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 8px;
+        }
+
+        .temp-group-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 16px 18px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.25s ease;
+        }
+
+        .temp-group-card:hover {
+            border-color: var(--border-color-light);
+            background: var(--bg-card-hover);
+        }
+
+        .temp-group-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #334155;
+            transition: background 0.3s ease;
+        }
+
+        .temp-group-card.group-co::before {
+            background: #f97316;
+            box-shadow: 0 0 10px rgba(249, 115, 22, 0.5);
+        }
+
+        .temp-group-card.group-gaz::before {
+            background: #ef4444;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        .temp-group-card.group-cwu::before {
+            background: #06b6d4;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+        }
+
+        .temp-group-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .temp-group-title-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .temp-group-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-md);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .temp-group-icon svg {
+            width: 20px;
+            height: 20px;
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .group-co .temp-group-icon {
+            color: #f97316;
+            background: rgba(249, 115, 22, 0.12);
+            border-color: rgba(249, 115, 22, 0.28);
+        }
+
+        .group-gaz .temp-group-icon {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.28);
+        }
+
+        .group-cwu .temp-group-icon {
+            color: #06b6d4;
+            background: rgba(6, 182, 212, 0.12);
+            border-color: rgba(6, 182, 212, 0.28);
+        }
+
+        .temp-group-titles {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            gap: 2px;
+        }
+
+        .temp-group-name {
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .temp-group-desc {
+            font-size: 0.74rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .delta-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 9px;
+            border-radius: 9999px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            letter-spacing: 0.02em;
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .badge-cwu-tag {
+            background: rgba(6, 182, 212, 0.15);
+            color: #67e8f9;
+            border-color: rgba(6, 182, 212, 0.3);
+        }
+
+        /* Wewnętrzne kafelki czujników */
+        .temp-sub-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .temp-sub-grid.single-sensor {
+            grid-template-columns: 1fr;
+        }
+
+        .temp-item {
+            background: #0d1424;
+            border: 1px solid rgba(51, 65, 85, 0.65);
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 86px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .temp-item:hover {
+            background: #111a2f;
+            border-color: rgba(100, 116, 139, 0.8);
+            transform: translateY(-1px);
+        }
+
+        .temp-item-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .temp-item-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--text-muted);
+        }
+
+        .temp-item-label svg {
+            width: 13px;
+            height: 13px;
+            stroke-width: 2.4;
+            flex-shrink: 0;
+        }
+
+        .temp-item.item-supply .temp-item-label {
+            color: #fca5a5;
+        }
+
+        .temp-item.item-return .temp-item-label {
+            color: #93c5fd;
+        }
+
+        .temp-item.item-tank .temp-item-label {
+            color: #67e8f9;
+        }
+
+        .sensor-id-pill {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.65rem;
+            color: #64748b;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 1px 5px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .temp-val {
+            font-size: 1.65rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 4px 0 2px 0;
+            font-variant-numeric: tabular-nums;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .temp-val small {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .temp-val.temp-supply {
+            color: #f87171;
+        }
+
+        .temp-val.temp-return {
+            color: #60a5fa;
+        }
+
+        .temp-val.temp-cwu {
+            color: #22d3ee;
+        }
+
+        .temp-val.temp-error {
+            color: #94a3b8;
+            opacity: 0.7;
+        }
+
+        .temp-item-sub {
+            font-size: 0.68rem;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        @media (max-width: 980px) {
+            .temp-groups-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         /* Responsive */
         @media (max-width: 640px) {
             .device-card {
@@ -773,6 +1138,201 @@ foreach ($devicesStatus as $s) {
         </div>
         <div style="font-family: monospace; font-size: 0.78rem;" id="lastUpdateText">
             Aktualizacja: <?= date('H:i:s') ?>
+        </div>
+    </div>
+
+    <?php
+    $coGroup = $temperaturesData['groups']['co'] ?? [];
+    $gazGroup = $temperaturesData['groups']['gaz'] ?? [];
+    $cwuGroup = $temperaturesData['groups']['cwu'] ?? [];
+    ?>
+
+    <!-- Sekcja 1: Temperatury w kotłowni (1-Wire) -->
+    <div class="section-header">
+        <div class="section-title">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+            </svg>
+            <span>Temperatury w kotłowni</span>
+        </div>
+        <div class="section-meta">
+            <span class="badge-tech">1-Wire &bull; DS18B20</span>
+            <span class="badge-active-sensors" id="activeSensorsBadge">
+                <span class="sensor-dot <?= (!empty($temperaturesData['active_count'])) ? 'online' : '' ?>"></span>
+                <span id="activeSensorsText"><?= $temperaturesData['active_count'] ?? 0 ?> / <?= $temperaturesData['total_count'] ?? 5 ?> czujników</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- Blok z wartościami temperatur podzielonymi na CO, Gaz i CWU -->
+    <div class="temp-groups-grid">
+        <!-- 1. Centralne Ogrzewanie (CO) -->
+        <div class="temp-group-card group-co">
+            <div class="temp-group-head">
+                <div class="temp-group-title-row">
+                    <div class="temp-group-icon">
+                        <svg viewBox="0 0 24 24" stroke="currentColor">
+                            <rect x="3" y="5" width="18" height="14" rx="2"/>
+                            <line x1="7" y1="5" x2="7" y2="19"/>
+                            <line x1="11" y1="5" x2="11" y2="19"/>
+                            <line x1="15" y1="5" x2="15" y2="19"/>
+                            <line x1="7" y1="2" x2="7" y2="5"/>
+                            <line x1="17" y1="2" x2="17" y2="5"/>
+                            <line x1="7" y1="19" x2="7" y2="22"/>
+                            <line x1="17" y1="19" x2="17" y2="22"/>
+                        </svg>
+                    </div>
+                    <div class="temp-group-titles">
+                        <span class="temp-group-name">Centralne Ogrzewanie (CO)</span>
+                        <span class="temp-group-desc">Obieg grzejnikowy &bull; Zasilanie i Powrót</span>
+                    </div>
+                </div>
+                <span class="delta-badge" id="delta-co" title="Różnica temperatur: Zasilanie CO - Powrót CO" <?= empty($coGroup['delta_formatted']) ? 'style="display:none;"' : '' ?>>
+                    ΔT: <strong id="delta-val-co"><?= htmlspecialchars($coGroup['delta_formatted'] ?? '--.-') ?></strong>°C
+                </span>
+            </div>
+
+            <div class="temp-sub-grid">
+                <!-- CO + (Zasilanie) -->
+                <?php $coP = $coGroup['sensor_items']['co_plus'] ?? []; ?>
+                <div class="temp-item item-supply" id="temp-item-co_plus" title="<?= htmlspecialchars($coP['full_name'] ?? 'CO +') ?> (<?= htmlspecialchars($coP['sensor_id'] ?? '') ?>)">
+                    <div class="temp-item-head">
+                        <span class="temp-item-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                            CO + (Zasilanie)
+                        </span>
+                        <span class="sensor-id-pill" title="ID czujnika DS18B20"><?= htmlspecialchars($coP['sensor_id'] ?? '') ?></span>
+                    </div>
+                    <div class="temp-val temp-supply <?= empty($coP['success']) ? 'temp-error' : '' ?>" id="temp-val-co_plus">
+                        <?= htmlspecialchars($coP['formatted'] ?? '--.-') ?> <small>°C</small>
+                    </div>
+                    <div class="temp-item-sub" id="temp-sub-co_plus"><?= !empty($coP['success']) ? htmlspecialchars($coP['desc'] ?? '') : 'Brak odczytu / rozłączony' ?></div>
+                </div>
+
+                <!-- CO - (Powrót) -->
+                <?php $coM = $coGroup['sensor_items']['co_minus'] ?? []; ?>
+                <div class="temp-item item-return" id="temp-item-co_minus" title="<?= htmlspecialchars($coM['full_name'] ?? 'CO -') ?> (<?= htmlspecialchars($coM['sensor_id'] ?? '') ?>)">
+                    <div class="temp-item-head">
+                        <span class="temp-item-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                            CO - (Powrót)
+                        </span>
+                        <span class="sensor-id-pill" title="ID czujnika DS18B20"><?= htmlspecialchars($coM['sensor_id'] ?? '') ?></span>
+                    </div>
+                    <div class="temp-val temp-return <?= empty($coM['success']) ? 'temp-error' : '' ?>" id="temp-val-co_minus">
+                        <?= htmlspecialchars($coM['formatted'] ?? '--.-') ?> <small>°C</small>
+                    </div>
+                    <div class="temp-item-sub" id="temp-sub-co_minus"><?= !empty($coM['success']) ? htmlspecialchars($coM['desc'] ?? '') : 'Brak odczytu / rozłączony' ?></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Kocioł Gazowy (Gaz) -->
+        <div class="temp-group-card group-gaz">
+            <div class="temp-group-head">
+                <div class="temp-group-title-row">
+                    <div class="temp-group-icon">
+                        <svg viewBox="0 0 24 24" stroke="currentColor">
+                            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+                        </svg>
+                    </div>
+                    <div class="temp-group-titles">
+                        <span class="temp-group-name">Kocioł Gazowy (Gaz)</span>
+                        <span class="temp-group-desc">Obieg kotła gazowego &bull; Zasilanie i Powrót</span>
+                    </div>
+                </div>
+                <span class="delta-badge" id="delta-gaz" title="Różnica temperatur: Zasilanie Gaz - Powrót Gaz" <?= empty($gazGroup['delta_formatted']) ? 'style="display:none;"' : '' ?>>
+                    ΔT: <strong id="delta-val-gaz"><?= htmlspecialchars($gazGroup['delta_formatted'] ?? '--.-') ?></strong>°C
+                </span>
+            </div>
+
+            <div class="temp-sub-grid">
+                <!-- Gaz + (Zasilanie) -->
+                <?php $gazP = $gazGroup['sensor_items']['gaz_plus'] ?? []; ?>
+                <div class="temp-item item-supply" id="temp-item-gaz_plus" title="<?= htmlspecialchars($gazP['full_name'] ?? 'Gaz +') ?> (<?= htmlspecialchars($gazP['sensor_id'] ?? '') ?>)">
+                    <div class="temp-item-head">
+                        <span class="temp-item-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                            Gaz + (Zasilanie)
+                        </span>
+                        <span class="sensor-id-pill" title="ID czujnika DS18B20"><?= htmlspecialchars($gazP['sensor_id'] ?? '') ?></span>
+                    </div>
+                    <div class="temp-val temp-supply <?= empty($gazP['success']) ? 'temp-error' : '' ?>" id="temp-val-gaz_plus">
+                        <?= htmlspecialchars($gazP['formatted'] ?? '--.-') ?> <small>°C</small>
+                    </div>
+                    <div class="temp-item-sub" id="temp-sub-gaz_plus"><?= !empty($gazP['success']) ? htmlspecialchars($gazP['desc'] ?? '') : 'Brak odczytu / rozłączony' ?></div>
+                </div>
+
+                <!-- Gaz - (Powrót) -->
+                <?php $gazM = $gazGroup['sensor_items']['gaz_minus'] ?? []; ?>
+                <div class="temp-item item-return" id="temp-item-gaz_minus" title="<?= htmlspecialchars($gazM['full_name'] ?? 'Gaz -') ?> (<?= htmlspecialchars($gazM['sensor_id'] ?? '') ?>)">
+                    <div class="temp-item-head">
+                        <span class="temp-item-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                            Gaz - (Powrót)
+                        </span>
+                        <span class="sensor-id-pill" title="ID czujnika DS18B20"><?= htmlspecialchars($gazM['sensor_id'] ?? '') ?></span>
+                    </div>
+                    <div class="temp-val temp-return <?= empty($gazM['success']) ? 'temp-error' : '' ?>" id="temp-val-gaz_minus">
+                        <?= htmlspecialchars($gazM['formatted'] ?? '--.-') ?> <small>°C</small>
+                    </div>
+                    <div class="temp-item-sub" id="temp-sub-gaz_minus"><?= !empty($gazM['success']) ? htmlspecialchars($gazM['desc'] ?? '') : 'Brak odczytu / rozłączony' ?></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Ciepła Woda Użytkowa (CWU) -->
+        <div class="temp-group-card group-cwu">
+            <div class="temp-group-head">
+                <div class="temp-group-title-row">
+                    <div class="temp-group-icon">
+                        <svg viewBox="0 0 24 24" stroke="currentColor">
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                        </svg>
+                    </div>
+                    <div class="temp-group-titles">
+                        <span class="temp-group-name">Ciepła Woda Użytkowa (CWU)</span>
+                        <span class="temp-group-desc">Zasobnik ciepłej wody użytkowej</span>
+                    </div>
+                </div>
+                <span class="delta-badge badge-cwu-tag" id="tag-cwu">
+                    Zasobnik CWU
+                </span>
+            </div>
+
+            <div class="temp-sub-grid single-sensor">
+                <!-- CWU (Zasobnik) -->
+                <?php $cwuS = $cwuGroup['sensor_items']['cwu'] ?? []; ?>
+                <div class="temp-item item-tank" id="temp-item-cwu" title="<?= htmlspecialchars($cwuS['full_name'] ?? 'CWU') ?> (<?= htmlspecialchars($cwuS['sensor_id'] ?? '') ?>)">
+                    <div class="temp-item-head">
+                        <span class="temp-item-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                            CWU (Zasobnik)
+                        </span>
+                        <span class="sensor-id-pill" title="ID czujnika DS18B20"><?= htmlspecialchars($cwuS['sensor_id'] ?? '') ?></span>
+                    </div>
+                    <div class="temp-val temp-cwu <?= empty($cwuS['success']) ? 'temp-error' : '' ?>" id="temp-val-cwu">
+                        <?= htmlspecialchars($cwuS['formatted'] ?? '--.-') ?> <small>°C</small>
+                    </div>
+                    <div class="temp-item-sub" id="temp-sub-cwu"><?= !empty($cwuS['success']) ? htmlspecialchars($cwuS['desc'] ?? '') : 'Brak odczytu / rozłączony' ?></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sekcja 2: Sterowanie obwodami kotłowni -->
+    <div class="section-header" style="margin-top: 26px;">
+        <div class="section-title">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                <line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+            <span>Sterowanie obwodami kotłowni</span>
+        </div>
+        <div class="section-meta">
+            <span class="badge-tech">Przekaźniki GPIO</span>
         </div>
     </div>
 
@@ -997,7 +1557,64 @@ foreach ($devicesStatus as $s) {
         }
     }
 
-    // Cykliczne odpytywanie o stan urządzeń
+    // Aktualizacja bloku temperatur w DOM
+    function updateTemperaturesDOM(tempData) {
+        if (!tempData || !tempData.groups) return;
+
+        // Aktualizacja plakietki aktywnych czujników
+        const activeSensorsBadge = document.getElementById('activeSensorsBadge');
+        const activeSensorsText = document.getElementById('activeSensorsText');
+        if (activeSensorsText && tempData.active_count !== undefined) {
+            activeSensorsText.textContent = `${tempData.active_count} / ${tempData.total_count} czujników`;
+        }
+        if (activeSensorsBadge) {
+            const dot = activeSensorsBadge.querySelector('.sensor-dot');
+            if (dot) {
+                if (tempData.active_count > 0) dot.classList.add('online');
+                else dot.classList.remove('online');
+            }
+        }
+
+        // Aktualizacja grup (CO, Gaz, CWU)
+        for (const [groupId, group] of Object.entries(tempData.groups)) {
+            // Różnica temperatur Delta T (dla CO i Gaz)
+            const deltaBadge = document.getElementById(`delta-${groupId}`);
+            const deltaVal = document.getElementById(`delta-val-${groupId}`);
+            if (deltaBadge) {
+                if (group.delta_formatted !== null && group.delta_formatted !== undefined) {
+                    if (deltaVal) deltaVal.textContent = group.delta_formatted;
+                    deltaBadge.style.display = 'inline-flex';
+                } else if (!group.show_delta) {
+                    // CWU nie posiada delty
+                } else {
+                    if (deltaVal) deltaVal.textContent = '--.-';
+                    deltaBadge.style.display = 'none';
+                }
+            }
+
+            // Czujniki w danej grupie
+            if (group.sensor_items) {
+                for (const [sensorKey, sData] of Object.entries(group.sensor_items)) {
+                    const valEl = document.getElementById(`temp-val-${sensorKey}`);
+                    const subEl = document.getElementById(`temp-sub-${sensorKey}`);
+
+                    if (valEl) {
+                        if (sData.success && sData.formatted !== null && sData.formatted !== '--.-') {
+                            valEl.innerHTML = `${sData.formatted} <small>°C</small>`;
+                            valEl.classList.remove('temp-error');
+                            if (subEl && sData.desc) subEl.textContent = sData.desc;
+                        } else {
+                            valEl.innerHTML = `--.- <small>°C</small>`;
+                            valEl.classList.add('temp-error');
+                            if (subEl) subEl.textContent = 'Brak odczytu / rozłączony';
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Cykliczne odpytywanie o stan urządzeń i temperatury
     async function refreshStatus(showFeedback = false) {
         if (isPolling) return;
         isPolling = true;
@@ -1012,6 +1629,11 @@ foreach ($devicesStatus as $s) {
             if (data && data.devices) {
                 for (const [id, info] of Object.entries(data.devices)) {
                     updateDeviceDOM(id, info);
+                }
+
+                // Aktualizacja temperatur 1-Wire
+                if (data.temperatures) {
+                    updateTemperaturesDOM(data.temperatures);
                 }
 
                 // Aktualizacja podsumowania
@@ -1034,7 +1656,7 @@ foreach ($devicesStatus as $s) {
                 }
 
                 if (showFeedback) {
-                    showToast('Zaktualizowano stany urządzeń');
+                    showToast('Zaktualizowano stany urządzeń i temperatury');
                 }
             }
         } catch (e) {

@@ -99,14 +99,29 @@ Ponadto na serwerze PI0 funkcjonuje niezależny panel i API sterowania obiema je
 | **Pompa obiegowa** | `pompa` (`sw3`) | `/var/www/gpio/relay_pompa_obiegowa.state` / `gpio535` | `535` (512 + 23) | 23 | Skrypt `script_pompa_obieg.sh open` / `close` | `0` (Wyłączony) |
 | *Zasilanie przekaźników* | `relay_power` (`sw4`) | `/var/www/gpio/gpio519` | `519` (512 + 7) | 7 | Linia szyny zasilania modułu | `1` |
 
+### Tabela Czujników Magistrali 1-Wire DS18B20 PI0 ([`src/pi0/config.php`](file:///home/user/home-page/src/pi0/config.php))
+
+Ścieżka w sysfs: `/sys/bus/w1/devices/<id>/w1_slave`.
+
+| Grupa | Nazwa / Rola | Identyfikator czujnika (`sensor_id`) | Klucz w API | Rola w instalacji | Kolorystyka / Akcent |
+|---|---|---|---|---|---|
+| **CO** | **CO +** (Zasilanie) | `28-0315047d06ff` | `co_plus` | Zasilanie instalacji grzejnikowej CO | `#f97316` (Pomarańczowy / ciepły) |
+| **CO** | **CO -** (Powrót) | `28-000004ef79c2` | `co_minus` | Powrót z instalacji grzejnikowej CO | `#60a5fa` (Błękitny / powrót) |
+| **Gaz** | **Gaz +** (Zasilanie) | `28-021463f067ff` | `gaz_plus` | Wyjście gorącej wody z kotła gazowego | `#ef4444` (Czerwony / płomień) |
+| **Gaz** | **Gaz -** (Powrót) | `28-0004170d18ff` | `gaz_minus` | Powrót wody do kotła gazowego | `#3b82f6` (Niebieski / powrót) |
+| **CWU** | **CWU** (Zasobnik) | `28-000004d2f065` | `cwu` | Ciepła woda użytkowa w zasobniku | `#06b6d4` (Cyjan / woda) |
+
+*Dla grup **CO** oraz **Gaz** panel automatycznie wylicza i prezentuje różnicę temperatur $\Delta T = T_{zasilanie} - T_{powrót}$ (np. `ΔT: +12.3°C`).*
+
 ### Widoki na serwerze PI0:
 - **Kotłownia ([`src/pi0/index.php`](file:///home/user/home-page/src/pi0/index.php)):**
+  - **Dedykowany blok temperatur (1-Wire DS18B20):** podzielony na 3 sekcje (**CO**, **Gaz**, **CWU**) z czytelnymi kafelkami, wskaźnikami $\Delta T$ dla obiegów CO i Gaz, identyfikatorami sprzętowymi DS18B20 oraz dynamicznym odświeżaniem live,
   - Kafelki dla Pieca CWU, Pieca CO oraz Pompy obiegowej z etykietami dedykowanych skryptów bash (`script_piec_gaz_cwu.sh`, `script_piec_gaz.sh`, `script_pompa_obieg.sh`), numerów GPIO i pinów fizycznych,
   - Przyciski bezpośredniego włączania (**Włącz** – niebieski jak na Grzegorzka 8) i wyłączania (**Wyłącz** – czerwony jak na Grzegorzka 8) dla każdego urządzenia,
   - Plakietki statusu na żywo (`● WŁĄCZONY` zielony pulsujący / `○ WYŁĄCZONY` szary),
-  - Przycisk odświeżania w nagłówku: **`Odśwież`** (usunięto przyciski grupowe Włącz wszystko / Wyłącz wszystko),
+  - Przycisk odświeżania w nagłówku: **`Odśwież`** (odświeża równocześnie stany przekaźników oraz odczyty temperatur 1-Wire),
   - Pełna obsługa Optimistic UI (natychmiastowa reakcja 0 ms z animacją ładowania i blokadą podwójnego kliknięcia),
-  - Asynchroniczny polling w tle co 2.5s bez obciążania Apache (podgląd stanu w czasie rzeczywistym).
+  - Asynchroniczny polling w tle co 2.5s bez obciążania Apache (jednoczesny podgląd stanu obwodów i temperatur na żywo).
 - **Wentylacja ([`src/pi0/wentylacja.php`](file:///home/user/home-page/src/pi0/wentylacja.php)):**
   - Równoległe sterowanie i odczyt temperatur z obu jednostek wentylacyjnych (`10.0.0.8` i `10.0.0.9`),
   - Odczyt 4 temperatur toru powietrza (Zewnątrz, Nawiew, Wywiew, Usuwanie) oraz statusów podzespołów (Nagrzewnica, GWC ze zwięzłymi plakietkami Wł / Wył),
@@ -267,8 +282,19 @@ curl -s "http://10.0.0.4/wentylacja.php?action=status"
 ### D. Sterowanie Kotłownią na serwerze PI0 (`10.0.0.2`)
 
 ```bash
-# 1. Odpytanie o status wszystkich urządzeń w formacie JSON:
+# 1. Odpytanie o status wszystkich urządzeń i temperatur w formacie JSON:
 curl -s "http://10.0.0.2/index.php?api=status"
+
+# 1a. Dedykowane odpytanie o same temperatury z magistrali 1-Wire (CO, Gaz, CWU):
+curl -s "http://10.0.0.2/index.php?api=temperatures"
+curl -s "http://10.0.0.2/index.php?api=temp"
+
+# Bezpośredni odczyt czujnika w konsoli PI0:
+cat /sys/bus/w1/devices/28-000004d2f065/w1_slave  # CWU
+cat /sys/bus/w1/devices/28-021463f067ff/w1_slave  # Gaz +
+cat /sys/bus/w1/devices/28-0004170d18ff/w1_slave  # Gaz -
+cat /sys/bus/w1/devices/28-0315047d06ff/w1_slave  # CO +
+cat /sys/bus/w1/devices/28-000004ef79c2/w1_slave  # CO -
 
 # 2. Sterowanie Piecem Gazowym CWU (skrypt script_piec_gaz_cwu.sh):
 curl -X POST http://10.0.0.2/index.php -d "device=piec_cwu&action=open"
@@ -1045,3 +1071,67 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Sprawdzono składnię PHP na serwerze PI0 (`php -l`) &rarr; 0 błędów.
      - Przetestowano endpoint API (`http://10.0.0.2/index.php?api=status`) &rarr; zwrócono pełną strukturę urządzeń ze statusami na żywo dla Pieca CWU, Pieca CO oraz Pompy obiegowej.
      - Potwierdzono poprawne działanie API na PI1 (`10.0.0.4`) i PI2 (`10.0.0.5`).
+
+
+### Wpis 21: Integracja magistrali 1-Wire DS18B20 i blok temperatur w panelu Kotłowni (PI0)
+- **Dokładne zapytanie użytkownika:**
+  > *„na pi0 wlaczylem obsluge w1-wire oraz podlaczylem czujniki. Chcialbym wyswieltlic temperatury z tych czujnikow.*
+  > *cd /sys/bus/w1/devices/*
+  > *cat /sys/bus/w1/devices/28-031464447dff/w1_slave*
+  > *opis czujnikow*
+  > *28-000004d2f065 cwu*
+  > *28-021463f067ff gaz +*
+  > *28-0004170d18ff gaz -*
+  > *28-0315047d06ff co +*
+  > *28-000004ef79c2 co -*
+  > *Stworz Blok z wartosciami wyswietlanymi i podzielonymi na co, gaz i cwu”*
+- **Podjęte działania i architektura rozwiązania:**
+  1. **Konfiguracja czujników i grup w [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php):**
+     - Zdefiniowano stałą `W1_DEVICES_DIR` (domyślnie `/sys/bus/w1/devices` z automatycznym fallbackiem do `/var/www/w1` lub lokalnego katalogu mocków `__DIR__ . '/gpio/w1'`).
+     - Utworzono tablicę `$TEMP_SENSORS` mapującą 5 czujników DS18B20:
+       - `cwu` (`28-000004d2f065`): Zasobnik ciepłej wody użytkowej (rola `tank`, akcent cyjan `#06b6d4`),
+       - `gaz_plus` (`28-021463f067ff`): Zasilanie kotła gazowego (rola `supply`, akcent czerwony `#ef4444`),
+       - `gaz_minus` (`28-0004170d18ff`): Powrót do kotła gazowego (rola `return`, akcent niebieski `#3b82f6`),
+       - `co_plus` (`28-0315047d06ff`): Zasilanie instalacji grzejnikowej CO (rola `supply`, akcent pomarańczowy `#f97316`),
+       - `co_minus` (`28-000004ef79c2`): Powrót z instalacji grzejnikowej CO (rola `return`, akcent błękitny `#60a5fa`).
+     - Utworzono strukturę grup `$TEMP_GROUPS` dzielącą odczyty na 3 główne sekcje: **Centralne Ogrzewanie (CO)**, **Kocioł Gazowy (Gaz)** oraz **Ciepła Woda Użytkowa (CWU)**.
+     - Zaimplementowano funkcję `readW1Sensor($sensorKeyOrId)` z pełną walidacją sumy kontrolnej CRC (`YES`), wyciąganiem wartości `t=...`, obsługą temperatur ujemnych oraz bezpiecznym formatowaniem.
+     - Zaimplementowano funkcję `getAllTemperatures()` z automatycznym wyliczaniem różnicy temperatur $\Delta T = T_{zasilanie} - T_{powrót}$ dla obiegów CO i Gaz.
+  2. **Interfejs WWW i blok wizualny w [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php):**
+     - Dodano na szczycie panelu (zaraz pod paskiem statusu i przed sekcją przekaźników) dedykowany blok **Temperatury w kotłowni** w układzie 3 kart:
+       - **Karta CO:** kafelki dla Zasilania (CO +) i Powrotu (CO -), plakietka $\Delta T$ (`ΔT: +12.3°C`), identyfikatory sprzętowe czujników DS18B20,
+       - **Karta Gaz:** kafelki dla Zasilania (Gaz +) i Powrotu (Gaz -), plakietka $\Delta T$ (`ΔT: +13.5°C`),
+       - **Karta CWU:** kafelek dla Zasobnika CWU z plakietką statusu.
+     - Dodano obsługę wskaźników braku odczytu (`--.- °C`, stan rozłączenia/błąd CRC).
+     - Zintegrowano JavaScript DOM (`updateTemperaturesDOM`) z istniejącym cyklem odpytywania `refreshStatus()` co 2.5s (live update bez przeładowania strony).
+  3. **Zdalne API JSON:**
+     - Obsłużono dedykowany endpoint `index.php?api=temperatures` (oraz alias `?api=temp`),
+     - Wzbogacono standardowy endpoint `index.php?api=status` o pole `temperatures` zawierające pełny stan grup, czujników i $\Delta T$.
+  4. **Weryfikacja i testy:**
+     - Sprawdzono poprawność syntaktyczną PHP (`php -l src/pi0/config.php`, `php -l src/pi0/index.php`),
+     - Przetestowano CLI odpytania API `?api=temperatures` oraz `?api=status`,
+     - Zweryfikowano obsługę błędów CRC oraz temperatur ujemnych. Wszystkie testy przebiegły pomyślnie.
+
+
+### Wpis 22: Wdrożenie nowej konfiguracji 1-Wire na serwer PI0 (10.0.0.2) i testy na żywo
+- **Dokładne zapytanie użytkownika:**
+  > *„wyslij konfiguracje na serwer”*
+- **Podjęte działania i wyniki produkcyjne:**
+  1. **Transfer plików na serwer PI0 (`10.0.0.2`):**
+     - Przesłano przez `scp`:
+       - [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php) &rarr; `pi@10.0.0.2:/var/www/config.php`
+       - [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php) &rarr; `pi@10.0.0.2:/var/www/index.php`
+     - Nadano odpowiednie uprawnienia i właściciela: `chmod 775`, `chown www-data:www-data`.
+  2. **Weryfikacja składni na serwerze:**
+     - `php -l /var/www/config.php` &rarr; brak błędów syntaktycznych.
+     - `php -l /var/www/index.php` &rarr; brak błędów syntaktycznych.
+  3. **Weryfikacja odczytów fizycznych z czujników 1-Wire w sysfs:**
+     - `28-0315047d06ff` (CO +): `25.7°C` (zasilanie CO)
+     - `28-000004ef79c2` (CO -): `22.8°C` (powrót CO) &rarr; **$\Delta T = +2.9^\circ\text{C}$**
+     - `28-021463f067ff` (Gaz +): `25.4°C` (zasilanie kocioł)
+     - `28-0004170d18ff` (Gaz -): `22.3°C` (powrót kocioł) &rarr; **$\Delta T = +3.1^\circ\text{C}$**
+     - `28-000004d2f065` (CWU): `127.9°C` (zasobnik CWU)
+  4. **Weryfikacja API HTTP REST:**
+     - Endpoint `http://10.0.0.2/index.php?api=temperatures` zwraca poprawny JSON ze wszystkimi 5 czujnikami,
+     - Endpoint `http://10.0.0.2/index.php?api=status` zwraca jednoczesny status urządzeń kotłowni oraz temperatur na żywo,
+     - Panel WWW w przeglądarce pod adresem `http://10.0.0.2/` wyświetla 3 sekcje temperatur z automatycznym odświeżaniem w tle co 2.5s.

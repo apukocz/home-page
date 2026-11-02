@@ -3,9 +3,16 @@
  * Konfiguracja sterowania kotłownią / przekaźnikami GPIO - PI0 (10.0.0.2)
  *
  * Obsługiwane urządzenia:
- * - Piec Gazowy CWU (GPIO526 / pin 14)
- * - Piec Gazowy CO  (GPIO527 / pin 15)
- * - Pompa obiegowa  (GPIO530 / pin 18)
+ * - Piec Gazowy CWU (GPIO537 / pin 25)
+ * - Piec Gazowy CO  (GPIO536 / pin 24)
+ * - Pompa obiegowa  (GPIO535 / pin 23)
+ *
+ * Obsługiwane czujniki temperatury 1-Wire (DS18B20):
+ * - 28-000004d2f065: CWU (Zasobnik ciepłej wody użytkowej)
+ * - 28-021463f067ff: Gaz + (Zasilanie z kotła gazowego)
+ * - 28-0004170d18ff: Gaz - (Powrót do kotła gazowego)
+ * - 28-0315047d06ff: CO + (Zasilanie instalacji grzewczej CO)
+ * - 28-000004ef79c2: CO - (Powrót z instalacji grzewczej CO)
  */
 
 // Katalog z plikami GPIO (symlinki do sysfs)
@@ -13,11 +20,127 @@ if (!defined('GPIO_DIR')) {
     define('GPIO_DIR', is_dir('/var/www/gpio') ? '/var/www/gpio' : __DIR__ . '/gpio');
 }
 
+// Ścieżka do magistrali 1-Wire (DS18B20)
+if (!defined('W1_DEVICES_DIR')) {
+    define('W1_DEVICES_DIR', is_dir('/sys/bus/w1/devices') ? '/sys/bus/w1/devices' : (is_dir('/var/www/w1') ? '/var/www/w1' : __DIR__ . '/gpio/w1'));
+}
+
 // Logika przekaźników (moduł przekaźnikowy sterowany stanem niskim):
 // '0' = przekaźnik załączony (ON)
 // '1' = przekaźnik rozłączony (OFF)
 define('RELAY_ON', '0');
 define('RELAY_OFF', '1');
+
+// =============================================================================
+// Konfiguracja czujników temperatury 1-Wire (DS18B20)
+// =============================================================================
+
+$TEMP_SENSORS = [
+    // 1. Ciepła Woda Użytkowa (CWU)
+    'cwu' => [
+        'id'          => 'cwu',
+        'sensor_id'   => '28-000004d2f065',
+        'name'        => 'CWU',
+        'sub_name'    => 'Zasobnik',
+        'full_name'   => 'Zasobnik Ciepłej Wody Użytkowej (CWU)',
+        'group'       => 'cwu',
+        'role'        => 'tank',
+        'desc'        => 'Temperatura ciepłej wody użytkowej w zasobniku',
+        'icon'        => 'water',
+        'accent'      => '#06b6d4', // Cyjan
+        'badge'       => 'badge-cwu'
+    ],
+
+    // 2. Kocioł Gazowy (Gaz + / Gaz -)
+    'gaz_plus' => [
+        'id'          => 'gaz_plus',
+        'sensor_id'   => '28-021463f067ff',
+        'name'        => 'Gaz +',
+        'sub_name'    => 'Zasilanie',
+        'full_name'   => 'Kocioł Gazowy • Zasilanie (Gaz +)',
+        'group'       => 'gaz',
+        'role'        => 'supply',
+        'desc'        => 'Wyjście gorącej wody z kotła gazowego',
+        'icon'        => 'flame_plus',
+        'accent'      => '#ef4444', // Czerwony
+        'badge'       => 'badge-supply'
+    ],
+    'gaz_minus' => [
+        'id'          => 'gaz_minus',
+        'sensor_id'   => '28-0004170d18ff',
+        'name'        => 'Gaz -',
+        'sub_name'    => 'Powrót',
+        'full_name'   => 'Kocioł Gazowy • Powrót (Gaz -)',
+        'group'       => 'gaz',
+        'role'        => 'return',
+        'desc'        => 'Powrót wody do kotła gazowego',
+        'icon'        => 'flame_minus',
+        'accent'      => '#3b82f6', // Niebieski
+        'badge'       => 'badge-return'
+    ],
+
+    // 3. Centralne Ogrzewanie (CO + / CO -)
+    'co_plus' => [
+        'id'          => 'co_plus',
+        'sensor_id'   => '28-0315047d06ff',
+        'name'        => 'CO +',
+        'sub_name'    => 'Zasilanie',
+        'full_name'   => 'Centralne Ogrzewanie • Zasilanie (CO +)',
+        'group'       => 'co',
+        'role'        => 'supply',
+        'desc'        => 'Zasilanie instalacji grzejnikowej CO',
+        'icon'        => 'radiator_plus',
+        'accent'      => '#f97316', // Pomarańczowy
+        'badge'       => 'badge-supply'
+    ],
+    'co_minus' => [
+        'id'          => 'co_minus',
+        'sensor_id'   => '28-000004ef79c2',
+        'name'        => 'CO -',
+        'sub_name'    => 'Powrót',
+        'full_name'   => 'Centralne Ogrzewanie • Powrót (CO -)',
+        'group'       => 'co',
+        'role'        => 'return',
+        'desc'        => 'Powrót wody z grzejników instalacji CO',
+        'icon'        => 'radiator_minus',
+        'accent'      => '#60a5fa', // Błękitny
+        'badge'       => 'badge-return'
+    ],
+];
+
+// Grupy czujników w instalacji kotłowni (CO, Gaz, CWU)
+$TEMP_GROUPS = [
+    'co' => [
+        'id'          => 'co',
+        'title'       => 'Centralne Ogrzewanie (CO)',
+        'short_title' => 'CO',
+        'desc'        => 'Obieg grzejnikowy CO',
+        'accent'      => '#f97316',
+        'icon'        => 'radiator',
+        'sensors'     => ['co_plus', 'co_minus'],
+        'show_delta'  => true,
+    ],
+    'gaz' => [
+        'id'          => 'gaz',
+        'title'       => 'Kocioł Gazowy (Gaz)',
+        'short_title' => 'Gaz',
+        'desc'        => 'Obieg kotła gazowego',
+        'accent'      => '#ef4444',
+        'icon'        => 'flame',
+        'sensors'     => ['gaz_plus', 'gaz_minus'],
+        'show_delta'  => true,
+    ],
+    'cwu' => [
+        'id'          => 'cwu',
+        'title'       => 'Ciepła Woda Użytkowa (CWU)',
+        'short_title' => 'CWU',
+        'desc'        => 'Zasobnik ciepłej wody użytkowej',
+        'accent'      => '#06b6d4',
+        'icon'        => 'water',
+        'sensors'     => ['cwu'],
+        'show_delta'  => false,
+    ],
+];
 
 // Lista urządzeń i mapowanie GPIO
 $DEVICES = [
@@ -391,4 +514,189 @@ function getAllDevicesStatus() {
         $states[$id] = getDeviceState($id);
     }
     return $states;
+}
+
+// =============================================================================
+// Funkcje obsługi magistrali 1-Wire i odczytu czujników DS18B20
+// =============================================================================
+
+/**
+ * Odczytuje temperaturę z pojedynczego czujnika 1-Wire DS18B20
+ *
+ * @param string $sensorKeyOrId Klucz czujnika (np. 'cwu', 'gaz_plus') lub pełny ID (np. '28-000004d2f065')
+ * @return array
+ */
+function readW1Sensor($sensorKeyOrId) {
+    global $TEMP_SENSORS;
+
+    $sensorMeta = null;
+    $sensorId = $sensorKeyOrId;
+
+    if (isset($TEMP_SENSORS[$sensorKeyOrId])) {
+        $sensorMeta = $TEMP_SENSORS[$sensorKeyOrId];
+        $sensorId = $sensorMeta['sensor_id'];
+    } else {
+        foreach ($TEMP_SENSORS as $k => $s) {
+            if ($s['sensor_id'] === $sensorKeyOrId) {
+                $sensorMeta = $s;
+                break;
+            }
+        }
+    }
+
+    // Walidacja ID czujnika (zabezpieczenie ścieżki)
+    if (!preg_match('/^[a-zA-Z0-9_\-]+$/', $sensorId)) {
+        return [
+            'success'   => false,
+            'sensor_id' => $sensorId,
+            'temp'      => null,
+            'formatted' => '--.-',
+            'status'    => 'error',
+            'error'     => 'Nieprawidłowy identyfikator czujnika'
+        ];
+    }
+
+    $w1Dir = defined('W1_DEVICES_DIR') ? W1_DEVICES_DIR : '/sys/bus/w1/devices';
+    $filePath = rtrim($w1Dir, '/') . '/' . $sensorId . '/w1_slave';
+
+    // Obsługa fallback do mocków w środowisku deweloperskim / testowym
+    if (!file_exists($filePath)) {
+        $mockDir = __DIR__ . '/gpio/w1';
+        $mockPath = $mockDir . '/' . $sensorId . '/w1_slave';
+        if (file_exists($mockPath)) {
+            $filePath = $mockPath;
+        } else {
+            return [
+                'success'   => false,
+                'sensor_id' => $sensorId,
+                'temp'      => null,
+                'formatted' => '--.-',
+                'status'    => 'disconnected',
+                'file'      => $filePath,
+                'error'     => 'Brak pliku w1_slave (czujnik odłączony lub brak magistrali)'
+            ];
+        }
+    }
+
+    $raw = @file_get_contents($filePath);
+    if ($raw === false || trim($raw) === '') {
+        return [
+            'success'   => false,
+            'sensor_id' => $sensorId,
+            'temp'      => null,
+            'formatted' => '--.-',
+            'status'    => 'read_error',
+            'file'      => $filePath,
+            'error'     => 'Nie można odczytać danych z czujnika'
+        ];
+    }
+
+    // Weryfikacja sumy kontrolnej CRC (DS18B20 zwraca YES w 1. linii)
+    // Przykład: "70 01 4b 46 7f ff 0c 10 e5 : crc=e5 YES"
+    if (!preg_match('/crc=[0-9a-fA-F]+\s+YES/', $raw)) {
+        return [
+            'success'   => false,
+            'sensor_id' => $sensorId,
+            'temp'      => null,
+            'formatted' => '--.-',
+            'status'    => 'crc_error',
+            'file'      => $filePath,
+            'error'     => 'Błąd sumy kontrolnej CRC (czujnik zajęty lub zakłócenia)'
+        ];
+    }
+
+    // Wyciągnięcie temperatury: t=23000 lub t=-2500 w 2. linii
+    if (preg_match('/t=(-?\d+)/', $raw, $matches)) {
+        $rawT = (int)$matches[1];
+        $tempC = round($rawT / 1000, 1);
+        $tempExact = round($rawT / 1000, 2);
+
+        return [
+            'success'    => true,
+            'sensor_id'  => $sensorId,
+            'temp'       => $tempC,
+            'temp_exact' => $tempExact,
+            'formatted'  => number_format($tempC, 1, '.', ''),
+            'raw'        => $rawT,
+            'status'     => 'ok',
+            'file'       => $filePath,
+            'error'      => null
+        ];
+    }
+
+    return [
+        'success'   => false,
+        'sensor_id' => $sensorId,
+        'temp'      => null,
+        'formatted' => '--.-',
+        'status'    => 'parse_error',
+        'file'      => $filePath,
+        'error'     => 'Nie znaleziono parametru t= w odpowiedzi czujnika'
+    ];
+}
+
+/**
+ * Zwraca wszystkie temperatury z magistrali 1-Wire z podziałem na grupy (CO, Gaz, CWU)
+ *
+ * @return array
+ */
+function getAllTemperatures() {
+    global $TEMP_SENSORS, $TEMP_GROUPS;
+
+    $sensorResults = [];
+    $totalSensors = count($TEMP_SENSORS);
+    $activeCount = 0;
+
+    foreach ($TEMP_SENSORS as $k => $sensorMeta) {
+        $readResult = readW1Sensor($sensorMeta['sensor_id']);
+        $sensorResults[$k] = array_merge($sensorMeta, $readResult);
+        if (!empty($readResult['success'])) {
+            $activeCount++;
+        }
+    }
+
+    $grouped = [];
+    foreach ($TEMP_GROUPS as $groupId => $groupMeta) {
+        $groupData = $groupMeta;
+        $groupSensors = [];
+        $supplyTemp = null;
+        $returnTemp = null;
+
+        foreach ($groupMeta['sensors'] as $sensorKey) {
+            if (isset($sensorResults[$sensorKey])) {
+                $sData = $sensorResults[$sensorKey];
+                $groupSensors[$sensorKey] = $sData;
+
+                if (($sData['role'] ?? '') === 'supply' && !empty($sData['success']) && $sData['temp'] !== null) {
+                    $supplyTemp = $sData['temp'];
+                } elseif (($sData['role'] ?? '') === 'return' && !empty($sData['success']) && $sData['temp'] !== null) {
+                    $returnTemp = $sData['temp'];
+                }
+            }
+        }
+
+        $groupData['sensor_items'] = $groupSensors;
+
+        // Obliczenie różnicy Delta T = (Zasilanie) - (Powrót) dla obiegów CO i Gaz
+        if (!empty($groupMeta['show_delta']) && $supplyTemp !== null && $returnTemp !== null) {
+            $delta = round($supplyTemp - $returnTemp, 1);
+            $groupData['delta'] = $delta;
+            $groupData['delta_formatted'] = ($delta >= 0 ? '+' : '') . number_format($delta, 1, '.', '');
+        } else {
+            $groupData['delta'] = null;
+            $groupData['delta_formatted'] = null;
+        }
+
+        $grouped[$groupId] = $groupData;
+    }
+
+    return [
+        'success'      => true,
+        'timestamp'    => time(),
+        'date'         => date('Y-m-d H:i:s'),
+        'active_count' => $activeCount,
+        'total_count'  => $totalSensors,
+        'groups'       => $grouped,
+        'sensors'      => $sensorResults
+    ];
 }
