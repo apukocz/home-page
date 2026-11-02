@@ -109,7 +109,7 @@ Ponadto na serwerze PI0 funkcjonuje niezależny panel i API sterowania obiema je
 | **CO** | **CO -** (Powrót) | `28-000004ef79c2` | `co_minus` | Powrót z instalacji grzejnikowej CO | `#60a5fa` (Błękitny / powrót) |
 | **Gaz** | **Gaz +** (Zasilanie) | `28-021463f067ff` | `gaz_plus` | Wyjście gorącej wody z kotła gazowego | `#ef4444` (Czerwony / płomień) |
 | **Gaz** | **Gaz -** (Powrót) | `28-0004170d18ff` | `gaz_minus` | Powrót wody do kotła gazowego | `#3b82f6` (Niebieski / powrót) |
-| **CWU** | **CWU** (Zasobnik) | `28-000004d2f065` | `cwu` | Ciepła woda użytkowa w zasobniku | `#06b6d4` (Cyjan / woda) |
+| **CWU** | **CWU** (Zasobnik) | `28-000004b32254` | `cwu` | Ciepła woda użytkowa w zasobniku | `#06b6d4` (Cyjan / woda) |
 
 *Dla grup **CO** oraz **Gaz** panel automatycznie wylicza i prezentuje różnicę temperatur $\Delta T = T_{zasilanie} - T_{powrót}$ (np. `ΔT: +12.3°C`).*
 
@@ -290,7 +290,7 @@ curl -s "http://10.0.0.2/index.php?api=temperatures"
 curl -s "http://10.0.0.2/index.php?api=temp"
 
 # Bezpośredni odczyt czujnika w konsoli PI0:
-cat /sys/bus/w1/devices/28-000004d2f065/w1_slave  # CWU
+cat /sys/bus/w1/devices/28-000004b32254/w1_slave  # CWU
 cat /sys/bus/w1/devices/28-021463f067ff/w1_slave  # Gaz +
 cat /sys/bus/w1/devices/28-0004170d18ff/w1_slave  # Gaz -
 cat /sys/bus/w1/devices/28-0315047d06ff/w1_slave  # CO +
@@ -1135,3 +1135,17 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Endpoint `http://10.0.0.2/index.php?api=temperatures` zwraca poprawny JSON ze wszystkimi 5 czujnikami,
      - Endpoint `http://10.0.0.2/index.php?api=status` zwraca jednoczesny status urządzeń kotłowni oraz temperatur na żywo,
      - Panel WWW w przeglądarce pod adresem `http://10.0.0.2/` wyświetla 3 sekcje temperatur z automatycznym odświeżaniem w tle co 2.5s.
+
+
+### Wpis 23: Zmiana czujnika CWU na 28-000004b32254 i wdrożenie na PI0
+- **Dokładne zapytanie użytkownika:**
+  > *„cwu jest teraz pod czujnikiem 28-000004b32254 zmien konfiguracje i wyslij na serwer”*
+- **Podjęte działania:**
+  1. **Aktualizacja konfiguracji w [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php):**
+     - Zmieniono identyfikator czujnika `cwu` z `28-000004d2f065` na `28-000004b32254`.
+  2. **Wdrożenie na serwer PI0 (`10.0.0.2`):**
+     - Przesłano plik `config.php` na serwer przez `scp` do `/var/www/config.php`.
+     - Zweryfikowano uprawnienia `www-data:www-data` i brak błędów składni PHP (`php -l`).
+  3. **Weryfikacja na żywo:**
+     - Nowy czujnik CWU `28-000004b32254` zwraca poprawny, fizyczny odczyt temperatury wody w zasobniku: **`44.1°C`** (zamiast dotychczasowej wartości 127.9°C z uszkodzonego czujnika).
+     - Odpytano API `http://10.0.0.2/index.php?api=temperatures` potwierdzając prawidłowe raportowanie danych dla wszystkich 3 sekcji.

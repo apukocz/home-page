@@ -8,7 +8,7 @@
  * - Pompa obiegowa  (GPIO535 / pin 23)
  *
  * Obsługiwane czujniki temperatury 1-Wire (DS18B20):
- * - 28-000004d2f065: CWU (Zasobnik ciepłej wody użytkowej)
+ * - 28-000004b32254: CWU (Zasobnik ciepłej wody użytkowej)
  * - 28-021463f067ff: Gaz + (Zasilanie z kotła gazowego)
  * - 28-0004170d18ff: Gaz - (Powrót do kotła gazowego)
  * - 28-0315047d06ff: CO + (Zasilanie instalacji grzewczej CO)
@@ -39,7 +39,7 @@ $TEMP_SENSORS = [
     // 1. Ciepła Woda Użytkowa (CWU)
     'cwu' => [
         'id'          => 'cwu',
-        'sensor_id'   => '28-000004d2f065',
+        'sensor_id'   => '28-000004b32254',
         'name'        => 'CWU',
         'sub_name'    => 'Zasobnik',
         'full_name'   => 'Zasobnik Ciepłej Wody Użytkowej (CWU)',
