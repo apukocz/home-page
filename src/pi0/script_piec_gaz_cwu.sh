@@ -5,35 +5,45 @@ WWW_DIR=${WWW_DIR:-/var/www}
 ECHO=/bin/echo
 KILL=/bin/kill
 
-RELAY_POWER=519
-RELAY=537
-
 CONF_NAME=relay_piec_gaz_cwu
 STATUS=$1
 
+RELAY_POWER=519
+RELAY=536    # Przelacza wlacznik na piecu gazowym BL - czyli zezwala na prace kotla nie zwiera opcji CO czy CWU
+TIME=${2:-160}
+RELAY_AFRISO=526
+RELAY_AFRISO_DIRECTION=527
+
 # Obsługa wywołań:
-# sh script_piec_gaz_cwu.sh open
-# sh script_piec_gaz_cwu.sh close
-# sh script_piec_gaz_cwu.sh relay_piec_gaz_cwu open
-if [ "$1" = "open" ] || [ "$1" = "close" ] || [ "$1" = "stop" ]; then
-  STATUS=$1
-elif [ "$2" = "open" ] || [ "$2" = "close" ] || [ "$2" = "stop" ]; then
-  CONF_NAME=$1
-  STATUS=$2
-fi
+# sh script_piec_gaz_cwu.sh open [time]
+# sh script_piec_gaz_cwu.sh close [time]
+
 
 ####
 
 F_RELAY_POWER_ON () {
     # Wlaczenie Zasilanie
-    [ -e "${GPIO_DIR}/gpio${RELAY_POWER}" ] && ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY_POWER}" || ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY_POWER}" 2>/dev/null || true
+    ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY_POWER}" 
 }
 
 F_RELAY_POWER_OFF () {
     # Wylaczenie Zasilanie
-    [ -e "${GPIO_DIR}/gpio${RELAY_POWER}" ] && ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_POWER}" || ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_POWER}" 2>/dev/null || true
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_POWER}"
 }
 
+F_KILL_PROCESS () {
+
+        TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} open" | cut -d" " -f1`
+        if [ ! -z $TMP_PID ]; then
+                ${KILL} -9 $TMP_PID
+        fi
+
+        TMP_PID=`ps -ax|grep -v grep | grep "${CONF_NAME} close" | cut -d" " -f1`
+        if [ ! -z $TMP_PID ]; then
+                ${KILL} -9 $TMP_PID
+        fi        
+
+}
 
 #####
 
@@ -42,29 +52,57 @@ case "$STATUS" in
     ${ECHO} "Open ..."
 
     ${ECHO} 1 > ${GPIO_DIR}/${CONF_NAME}.state
-    [ "${CONF_NAME}" = "relay_piec_gaz_cwu" ] && ${ECHO} 1 > ${GPIO_DIR}/piec_cwu.state 2>/dev/null || true
 
+    # Wlaczenie zasilania dla pieca gazowego 230
     F_RELAY_POWER_ON
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
+
+    # Wlaczenie pieca gazowego na zworce BL
+    ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}"
+
+    # Wlaczenie na przekazniku zasilania dla silownika i domyslnie obrot w strone GWC
+    ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY_AFRISO}"
+    ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY_AFRISO_DIRECTION}"
+    
+    sleep ${TIME}
+
+    # Wylaczenie przekaznikow po wykonaniu operacji
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO}"
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO_DIRECTION}"
 
     ;;
   close)
     ${ECHO} "Close ..."
 
     ${ECHO} 0 > ${GPIO_DIR}/${CONF_NAME}.state
-    [ "${CONF_NAME}" = "relay_piec_gaz_cwu" ] && ${ECHO} 0 > ${GPIO_DIR}/piec_cwu.state 2>/dev/null || true
 
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
+    # Wlaczenie pieca gazowego na zworce BL
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}"
+
+    # Wlaczenie na przekazniku zasilania dla silownika i domyslnie obrot w strone GWC
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO}"
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO_DIRECTION}"
 
     ;;
   stop)
-    ${ECHO} "Stop ..."
+    ${ECHO} "Stop Power off ..."
+
+    # Ubija wszystkie procesy open lub close
+    F_KILL_PROCESS
 
     ${ECHO} 2 > ${GPIO_DIR}/${CONF_NAME}.state
-    [ "${CONF_NAME}" = "relay_piec_gaz_cwu" ] && ${ECHO} 2 > ${GPIO_DIR}/piec_cwu.state 2>/dev/null || true
 
+    # Wlaczenie pieca gazowego na zworce BL
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}"
+
+    # Wlaczenie na przekazniku zasilania dla silownika i domyslnie obrot w strone GWC
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO}"
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY_AFRISO_DIRECTION}"
+
+    # Czeka az piec ostygnie i go wylacza - palniki i elektronika musi ostygnac
+    sleep 200
+
+    # Wylaczenie zasilania dla pieca gazowego 230
     F_RELAY_POWER_OFF
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
 
     ;;
   *)

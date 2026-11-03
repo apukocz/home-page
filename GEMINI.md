@@ -1149,3 +1149,32 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
   3. **Weryfikacja na żywo:**
      - Nowy czujnik CWU `28-000004b32254` zwraca poprawny, fizyczny odczyt temperatury wody w zasobniku: **`44.1°C`** (zamiast dotychczasowej wartości 127.9°C z uszkodzonego czujnika).
      - Odpytano API `http://10.0.0.2/index.php?api=temperatures` potwierdzając prawidłowe raportowanie danych dla wszystkich 3 sekcji.
+
+
+### Wpis 24: Klawisze sterowania kotłownią na PI0 (Włącz/Wyłącz i Zasilanie Wyłącz), wyśrodkowanie napisów oraz synchronizacja skryptów
+- **Dokładne zapytanie użytkownika:**
+  > *„Chcialbym zmodyfikowac strone dla PI0 Gdzie jest klawisz "Piec Gazowy CWU" i "Piec Gazowy CO". Wysrodkuj napisy na wszystkich klawiszach na tej stronie w pionie i poziomie. Dla dwoch wymienionych prosze o zmodyfikowanie i stworzenie klawisza Wlacz/wylacz ktory wykonuje skrypt odpowiednio dla cwu script_piec_gaz_cwu.sh open/close (Wlacz oznacza stan wlaczenia natomiast wyłacz brak pracy ) i co script_piec_gaz_cwu.sh open/close i drugi klawisz Zasilanie Wyłącz z prosba o potwierdzenie ze oznacza to wylaczenie zasilania. Ponadto skopiouj skrypty script_piec_gaz_cwu.sh script_piec_gaz.sh script_pompa_obieg.sh na serwer bo sa nowe zaktualizowane przezemnie.”*
+  > *„don't change scripts”* / *„do not change script_piec_gaz_cwu.sh script_piec_gaz.sh script_pompa_obieg.sh - understand but do not change”*
+- **Podjęte działania i wyniki produkcyjne:**
+  1. **Wyśrodkowanie napisów na wszystkich klawiszach na stronie PI0 w pionie i poziomie:**
+     - Zaktualizowano style CSS dla `button`, `.btn-global`, `.btn-action`, `.btn-global span` oraz `.btn-action span` stosując `display: inline-flex; align-items: center; justify-content: center; text-align: center; vertical-align: middle; line-height: 1.2;`.
+  2. **Przebudowa klawiszy dla Pieca Gazowego CWU i Pieca Gazowego CO:**
+     - **Klawisz 1 (`Włącz / Wyłącz`):** Przełącza tryb pracy pieca (wywołuje `open` gdy piec nie pracuje, włączając palnik i zawór Afriso, lub `close` wyłączając palnik - stan spoczynku/brak pracy). Gdy aktywny, podświetla się w kolorze zielonym z plakietką `WŁĄCZONY`.
+     - **Klawisz 2 (`Zasilanie Wyłącz`):** Dedykowany klawisz odcinający zasilanie 230V kotła (wywołuje `stop`). Kliknięcie wyświetla okno potwierdzenia `confirm()`: *„Czy na pewno chcesz wyłączyć zasilanie dla [Urządzenie]? Oznacza to całkowite wyłączenie zasilania kotła gazowego (po ok. 200s schłodzenia palnika i elektroniki).”*.
+     - Dla **Pompy obiegowej** zachowano standardowe klawisze `Włącz` i `Wyłącz` z pełnym wyśrodkowaniem tekstu.
+  3. **Aktualizacja zaplecza backendowego ([`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php)):**
+     - Obsłużono akcję `stop` mapując ją bezpośrednio na parametr skryptu `stop` i stan `2` (`ZASILANIE WYŁ.`).
+     - Uruchamianie skryptów bash z parametrem `open` oraz `stop` realizowane jest w tle (`nohup ... &`), dzięki czemu opóźnienia `sleep 160` i `sleep 200` w skryptach nie blokują serwera Apache/PHP.
+  4. **Synchronizacja zaktualizowanych skryptów na fizyczny serwer PI0 (`10.0.0.2`):**
+     - Skopiowano bez jakichkolwiek modyfikacji oryginalne pliki użytkownika:
+       - [`src/pi0/script_piec_gaz_cwu.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz_cwu.sh) &rarr; `10.0.0.2:/var/www/script_piec_gaz_cwu.sh`
+       - [`src/pi0/script_piec_gaz.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_piec_gaz.sh) &rarr; `10.0.0.2:/var/www/script_piec_gaz.sh`
+       - [`src/pi0/script_pompa_obieg.sh`](file:///mnt/z/Vagrant/home-page/src/pi0/script_pompa_obieg.sh) &rarr; `10.0.0.2:/var/www/script_pompa_obieg.sh`
+     - Nadano uprawnienia `chmod 775` i właściciela `www-data:www-data`.
+     - Skopiowano zaktualizowane pliki aplikacji WWW:
+       - [`src/pi0/config.php`](file:///mnt/z/Vagrant/home-page/src/pi0/config.php) &rarr; `10.0.0.2:/var/www/config.php`
+       - [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php) &rarr; `10.0.0.2:/var/www/index.php`
+  5. **Weryfikacja produkcyjna:**
+     - Składnia PHP na serwerze poprawna (`No syntax errors detected`).
+     - Endpoint `http://10.0.0.2/index.php?api=status` zwraca pełny status urządzeń i temperatur.
+     - Przetestowano renderowanie strony WWW `http://10.0.0.2/index.php` potwierdzając obecność obu nowych klawiszy oraz pełne centrowanie elementów.

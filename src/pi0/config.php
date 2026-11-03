@@ -315,6 +315,10 @@ function getDeviceState($deviceId) {
     }
 
     if ($stateDetected) {
+        $stateKey = $isOn ? 'on' : (($raw === '2') ? 'stop' : 'off');
+        $label = $isOn ? 'WŁĄCZONY' : (($raw === '2') ? 'ZASILANIE WYŁ.' : 'WYŁĄCZONY');
+        $badge = $isOn ? 'badge-success' : (($raw === '2') ? 'badge-danger' : 'badge-secondary');
+
         return [
             'id'       => $dev['id'],
             'name'     => $dev['name'],
@@ -322,9 +326,9 @@ function getDeviceState($deviceId) {
             'pin'      => $dev['pin'],
             'raw'      => $raw,
             'is_on'    => $isOn,
-            'state'    => $isOn ? 'on' : 'off',
-            'label'    => $isOn ? 'WŁĄCZONY' : 'WYŁĄCZONY',
-            'badge'    => $isOn ? 'badge-success' : 'badge-secondary',
+            'state'    => $stateKey,
+            'label'    => $label,
+            'badge'    => $badge,
             'file'     => $filePath,
         ];
     }
@@ -366,14 +370,17 @@ function setDeviceState($deviceId, $action) {
     if ($actionLower === 'on' || $actionLower === '1' || $actionLower === 'open' || $actionLower === 'start') {
         $targetVal = RELAY_ON;
         $scriptAction = 'open';
-    } elseif ($actionLower === 'off' || $actionLower === '0' || $actionLower === 'close' || $actionLower === 'stop') {
+    } elseif ($actionLower === 'stop' || $actionLower === 'power_off' || $actionLower === 'poweroff' || $actionLower === 'zasilanie_off') {
+        $targetVal = RELAY_OFF;
+        $scriptAction = 'stop';
+    } elseif ($actionLower === 'off' || $actionLower === '0' || $actionLower === 'close') {
         $targetVal = RELAY_OFF;
         $scriptAction = 'close';
     } elseif ($actionLower === 'toggle') {
         $targetVal = ($current['is_on'] ? RELAY_OFF : RELAY_ON);
         $scriptAction = ($current['is_on'] ? 'close' : 'open');
     } else {
-        return ['success' => false, 'error' => "Nieprawidłowa akcja: $action (dozwolone: on, off, toggle, open, close)"];
+        return ['success' => false, 'error' => "Nieprawidłowa akcja: $action (dozwolone: on, off, stop, toggle, open, close)"];
     }
 
     // Obsługa urządzeń kotłowni przez dedykowane skrypty bash
@@ -391,45 +398,43 @@ function setDeviceState($deviceId, $action) {
 
         $gpioDir = defined('GPIO_DIR') ? GPIO_DIR : '/var/www/gpio';
         $envPrefix = 'GPIO_DIR=' . escapeshellarg($gpioDir) . ' ';
-        // Wywołanie: /bin/sh <script> open (włącz) lub close (wyłącz)
-        $cmd = $envPrefix . '/bin/sh ' . escapeshellcmd($scriptPath) . ' ' . escapeshellarg($scriptAction) . ' 2>&1';
+        // Wywołanie w tle przez nohup & aby nie blokować Apache/PHP przez opóźnienia sleep w skrypcie
+        $cmd = $envPrefix . 'nohup /bin/sh ' . escapeshellcmd($scriptPath) . ' ' . escapeshellarg($scriptAction) . ' > /dev/null 2>&1 &';
 
-        $output = [];
-        $returnVar = 0;
-        exec($cmd, $output, $returnVar);
-
-        if ($returnVar !== 0) {
-            // Spróbuj przez sudo jeśli konieczne
-            $sudoCmd = 'sudo ' . $cmd;
-            $sOut = [];
-            $sRet = 0;
-            exec($sudoCmd, $sOut, $sRet);
-            if ($sRet === 0) {
-                $returnVar = 0;
-                $output = $sOut;
-            }
-        }
+        exec($cmd);
 
         // Zapis do logu wywołań
-        @file_put_contents(rtrim($gpioDir, '/') . '/script_kotlownia.log', date('Y-m-d H:i:s') . " [PHP exec] {$cmd} (ret={$returnVar})\n", FILE_APPEND);
-        @file_put_contents(rtrim($gpioDir, '/') . '/script_' . $deviceId . '.log', date('Y-m-d H:i:s') . " [PHP exec] {$cmd} (ret={$returnVar})\n", FILE_APPEND);
+        @file_put_contents(rtrim($gpioDir, '/') . '/script_kotlownia.log', date('Y-m-d H:i:s') . " [PHP exec] {$cmd}\n", FILE_APPEND);
+        @file_put_contents(rtrim($gpioDir, '/') . '/script_' . $deviceId . '.log', date('Y-m-d H:i:s') . " [PHP exec] {$cmd}\n", FILE_APPEND);
 
-        // Krótkie opóźnienie na ustabilizowanie stanu
-        usleep(20000); // 20ms
+        // Ustawienie pliku stanu .state dla natychmiastowej spójności w PHP (1=włączony, 0=wyłączony/brak pracy, 2=zasilanie wyłączone)
+        $stateVal = ($scriptAction === 'open') ? '1' : (($scriptAction === 'stop') ? '2' : '0');
+        $confName = $dev['param'] ?? ('relay_' . $deviceId);
+        $stateFile = rtrim($gpioDir, '/') . '/' . $confName . '.state';
+        @file_put_contents($stateFile, "{$stateVal}\n");
+        if (!empty($dev['alt_state_file'])) {
+            @file_put_contents($dev['alt_state_file'], "{$stateVal}\n");
+        }
+
+        // Krótkie opóźnienie 20ms
+        usleep(20000);
         $newState = getDeviceState($deviceId);
 
+        $statusMsg = ($scriptAction === 'stop')
+            ? 'Wyłączono zasilanie (chłodzenie i odcięcie 230V)'
+            : (($scriptAction === 'open') ? 'Włączono (praca)' : 'Wyłączono (brak pracy)');
+
         return [
-            'success'    => ($returnVar === 0),
+            'success'    => true,
             'action'     => $scriptAction,
             'device'     => $deviceId,
             'cmd'        => $cmd,
-            'output'     => implode("\n", $output),
             'state'      => $newState['state'],
             'is_on'      => $newState['is_on'],
             'label'      => $newState['label'],
             'badge'      => $newState['badge'],
             'raw'        => $newState['raw'],
-            'message'    => sprintf("%s: %s (skrypt %s %s)", $dev['name'], $newState['is_on'] ? 'Włączony' : 'Wyłączony', $scriptName, $scriptAction)
+            'message'    => sprintf("%s: %s (skrypt %s %s)", $dev['name'], $statusMsg, $scriptName, $scriptAction)
         ];
     }
 

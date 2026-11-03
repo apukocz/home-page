@@ -14,12 +14,6 @@ TIME=${2:-300}
 # Obsługa wywołań:
 # sh script_pompa_obieg.sh open
 # sh script_pompa_obieg.sh close
-# sh script_pompa_obieg.sh relay_pompa_obiegowa open
-if [ "$2" = "open" ] || [ "$2" = "close" ] || [ "$2" = "stop" ]; then
-  CONF_NAME=$1
-  STATUS=$2
-  TIME=${3:-300}
-fi
 
 F_KILL_PROCESS_OPEN () {
 
@@ -39,7 +33,13 @@ case "$STATUS" in
 
     ${ECHO} 1 > ${GPIO_DIR}/${CONF_NAME}.state
 
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
+    # Wlaczenie pompy obiegowej
+    ${ECHO} 0 > "${GPIO_DIR}/gpio${RELAY}"
+
+    sleep ${TIME}
+
+    # Wylaczenie pompy obiegowej
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}"
 
     ;;
   close)
@@ -47,9 +47,11 @@ case "$STATUS" in
 
     ${ECHO} 0 > ${GPIO_DIR}/${CONF_NAME}.state
 
+    # Ubicie niepotrzebnego procesu ktory moze odliczac
     F_KILL_PROCESS_OPEN
 
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
+    # Wylaczenie pompy obiegowej
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}"
 
     ;;
   stop)
@@ -59,7 +61,7 @@ case "$STATUS" in
 
     F_KILL_PROCESS_OPEN
 
-    [ -e "${GPIO_DIR}/gpio${RELAY}" ] && ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" || ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}" 2>/dev/null || true
+    ${ECHO} 1 > "${GPIO_DIR}/gpio${RELAY}"
 
     ;;
   *)
