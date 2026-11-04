@@ -635,9 +635,9 @@ foreach ($devicesStatus as $s) {
             flex-shrink: 0;
         }
 
-        /* Styl klawisza Włącz / Wyłącz:
-           - stan nieaktywny (brak pracy): niebieski jak na Grzegorzka 8
-           - stan aktywny (praca): zielony pulsujący
+        /* Styl klawisza sterowania piecem CWU / CO:
+           - stan nieaktywny (brak pracy / wyłączony): niebieski przycisk "Włącz" (jak na Grzegorzka 8)
+           - stan aktywny (praca / włączony): czerwony przycisk "Wyłącz" (jak na Grzegorzka 8)
         */
         .btn-toggle {
             background: #2563eb;
@@ -652,14 +652,14 @@ foreach ($devicesStatus as $s) {
         }
 
         .btn-toggle.is-active-btn {
-            background: #059669;
-            border-color: #34d399;
+            background: #ef4444;
+            border-color: #f87171;
             color: #ffffff;
-            box-shadow: 0 0 14px rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.5);
         }
 
         .btn-toggle.is-active-btn:hover:not(:disabled) {
-            background: #047857;
+            background: #dc2626;
         }
 
         /* Styl klawisza Zasilanie Wyłącz (odcięcie 230V z potwierdzeniem) */
@@ -1467,14 +1467,19 @@ foreach ($devicesStatus as $s) {
 
             <div class="device-actions">
                 <?php if ($id === 'piec_cwu' || $id === 'piec_co'): ?>
-                    <!-- Klawisz 1: Włącz / Wyłącz (open / close: praca / brak pracy) -->
+                    <!-- Klawisz 1: Włącz gdy wyłączony / Wyłącz gdy włączony (open / close: praca / brak pracy) -->
                     <button type="button" 
                             class="btn-action btn-toggle <?= $isOn ? 'is-active-btn' : '' ?>" 
                             id="btn-toggle-<?= htmlspecialchars($id) ?>"
                             onclick="triggerAction('<?= htmlspecialchars($id) ?>', 'toggle')"
-                            title="<?= $isOn ? ('Wyłącz ' . htmlspecialchars($dev['name']) . ' (brak pracy)') : ('Włącz ' . htmlspecialchars($dev['name']) . ' (praca)') ?>">
-                        <svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-                        <span>Włącz / Wyłącz</span>
+                            title="<?= $isOn ? ('Wyłącz ' . htmlspecialchars($dev['name'])) : ('Włącz ' . htmlspecialchars($dev['name'])) ?>">
+                        <?php if ($isOn): ?>
+                            <svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+                            <span>Wyłącz</span>
+                        <?php else: ?>
+                            <svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                            <span>Włącz</span>
+                        <?php endif; ?>
                     </button>
 
                     <!-- Klawisz 2: Zasilanie Wyłącz (stop: wyłączenie zasilania z prośbą o potwierdzenie) -->
@@ -1586,16 +1591,22 @@ foreach ($devicesStatus as $s) {
             labelSpan.textContent = info.label || (isOn ? 'WŁĄCZONY' : (isStop ? 'ZASILANIE WYŁ.' : 'WYŁĄCZONY'));
         }
 
-        // Klawisze dedykowane CWU / CO: Włącz / Wyłącz oraz Zasilanie Wyłącz
+        // Klawisze dedykowane CWU / CO: Włącz gdy wyłączony, Wyłącz gdy włączony
         if (btnToggle) {
             btnToggle.disabled = false;
-            btnToggle.innerHTML = `<svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg><span>Włącz / Wyłącz</span>`;
+            const devNames = {
+                'piec_cwu': 'Piec Gazowy CWU',
+                'piec_co': 'Piec Gazowy CO'
+            };
+            const dName = devNames[deviceId] || '';
             if (isOn) {
                 btnToggle.classList.add('is-active-btn');
-                btnToggle.title = 'Wyłącz pracę (stan: włączony)';
+                btnToggle.innerHTML = `<svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg><span>Wyłącz</span>`;
+                btnToggle.title = dName ? `Wyłącz ${dName}` : 'Wyłącz';
             } else {
                 btnToggle.classList.remove('is-active-btn');
-                btnToggle.title = 'Włącz pracę (stan: wyłączony / brak pracy)';
+                btnToggle.innerHTML = `<svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg><span>Włącz</span>`;
+                btnToggle.title = dName ? `Włącz ${dName}` : 'Włącz';
             }
         }
 
@@ -1649,6 +1660,7 @@ foreach ($devicesStatus as $s) {
         const isActivating = (action === 'on' || action === '1' || action === 'start' || action === 'open');
         const isStopping = (action === 'stop' || action === 'power_off');
         const isToggling = (action === 'toggle');
+        const currentlyActive = card ? card.classList.contains('is-active') : false;
 
         if (card) {
             if (isActivating) {
@@ -1657,6 +1669,13 @@ foreach ($devicesStatus as $s) {
             } else if (isStopping) {
                 card.classList.remove('is-active');
                 card.classList.add('is-poweroff');
+            } else if (isToggling) {
+                if (currentlyActive) {
+                    card.classList.remove('is-active');
+                } else {
+                    card.classList.add('is-active');
+                    card.classList.remove('is-poweroff');
+                }
             }
         }
 
@@ -1669,7 +1688,6 @@ foreach ($devicesStatus as $s) {
                 badge.className = 'status-pill badge-success';
                 if (labelSpan) labelSpan.textContent = 'WŁĄCZANIE...';
             } else if (isToggling) {
-                const currentlyActive = card ? card.classList.contains('is-active') : false;
                 if (currentlyActive) {
                     badge.className = 'status-pill badge-secondary';
                     if (labelSpan) labelSpan.textContent = 'WYŁĄCZANIE...';
@@ -1685,7 +1703,11 @@ foreach ($devicesStatus as $s) {
 
         if (btnToggle) {
             btnToggle.disabled = true;
-            btnToggle.innerHTML = `<span class="spinner"></span><span>Przełączam...</span>`;
+            if (isActivating || (isToggling && !currentlyActive)) {
+                btnToggle.innerHTML = `<span class="spinner"></span><span>Włączam...</span>`;
+            } else {
+                btnToggle.innerHTML = `<span class="spinner"></span><span>Wyłączam...</span>`;
+            }
         }
         if (btnPowerOff && isStopping) {
             btnPowerOff.disabled = true;

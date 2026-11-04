@@ -1178,3 +1178,22 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Składnia PHP na serwerze poprawna (`No syntax errors detected`).
      - Endpoint `http://10.0.0.2/index.php?api=status` zwraca pełny status urządzeń i temperatur.
      - Przetestowano renderowanie strony WWW `http://10.0.0.2/index.php` potwierdzając obecność obu nowych klawiszy oraz pełne centrowanie elementów.
+
+
+### Wpis 25: Dynamiczny stan klawisza Włącz/Wyłącz dla Pieca Gazowego CWU i Pieca Gazowego CO na PI0
+- **Dokładne zapytanie użytkownika:**
+  > *„W Pi0 "Piec Gazowy CWU" na stronie jest klawisz wlacz/wylacz. Zmien jego konfiguracje aby pokazywal wlacz gdy jest wylaczony i na odwrot. Dokladnie to samo zmodyfikuj dla klawisza Piec Gazowy CO.”*
+- **Podjęte działania i wyniki produkcyjne:**
+  1. **Modyfikacja widoku HTML i logiki prezentacji ([`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php)):**
+     - Zmieniono klawisz przełączający dla **Pieca Gazowego CWU** (`piec_cwu`) oraz **Pieca Gazowego CO** (`piec_co`):
+       - Gdy urządzenie jest **wyłączone** (`$isOn == false`, stan `off` lub `stop`): klawisz wyświetla napis **`Włącz`** (niebieski styl jak na Grzegorzka 8 z ikoną włączenia).
+       - Gdy urządzenie jest **włączone** (`$isOn == true`, stan `on`): klawisz wyświetla napis **`Wyłącz`** (czerwony styl `.is-active-btn` / `#ef4444` z ikoną wyłączenia).
+  2. **Aktualizacja dynamicznego JS (`updateDeviceDOM` i `applyOptimisticAction`):**
+     - W funkcji `updateDeviceDOM`: dynamiczne przełączanie treści przycisku między `<span>Włącz</span>` a `<span>Wyłącz</span>` wraz z odpowiednimi ikonami SVG i atrybutami `title` przy każdym cyklu pollingu oraz po otrzymaniu odpowiedzi z API.
+     - W funkcji `applyOptimisticAction`: natychmiastowa reakcja 0 ms z etykietami `Włączam...` lub `Wyłączam...` w zależności od aktualnego stanu urządzenia.
+  3. **Wdrożenie na serwer PI0 (`10.0.0.2`):**
+     - Przesłano zaktualizowany plik `index.php` na serwer `10.0.0.2:/var/www/index.php`.
+     - Zweryfikowano brak błędów składni PHP (`php -l /var/www/index.php`), uprawnienia `chmod 775` oraz właściciela `www-data:www-data`.
+  4. **Weryfikacja na żywo:**
+     - Sprawdzono wyrenderowany kod HTML `curl -s http://10.0.0.2/index.php` potwierdzając wyświetlanie przycisków **`Włącz`** dla wyłączonych pieców CWU i CO.
+
