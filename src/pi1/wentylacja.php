@@ -3,8 +3,8 @@
  * Panel Sterowania Wentylacją - PI1 (10.0.0.4)
  * 
  * Obsługuje 2 jednostki wentylacyjne:
- * - Wentylacja 1: 10.0.0.8
- * - Wentylacja 2: 10.0.0.9
+ * - Grzegorzka 8: 10.0.0.8
+ * - Grzegorzka 8A: 10.0.0.9
  *
  * Domyślnie wysyła polecenia API równolegle pod oba adresy jednocześnie (curl_multi).
  */
@@ -16,14 +16,14 @@ $WENTYLACJA = [
     '1' => [
         'id' => '1',
         'ip' => '10.0.0.8',
-        'name' => 'Wentylacja 1',
-        'desc' => 'Jednostka główna (10.0.0.8)'
+        'name' => 'Grzegorzka 8',
+        'desc' => 'Centrala wentylacji (10.0.0.8)'
     ],
     '2' => [
         'id' => '2',
         'ip' => '10.0.0.9',
-        'name' => 'Wentylacja 2',
-        'desc' => 'Jednostka dodatkowa (10.0.0.9)'
+        'name' => 'Grzegorzka 8A',
+        'desc' => 'Centrala wentylacji (10.0.0.9)'
     ]
 ];
 $REKUPERATORY = &$WENTYLACJA; // Alias dla wstecznej kompatybilności
@@ -763,7 +763,7 @@ if ($requestedAction !== null || $requestedName !== null) {
         ];
     } else {
         $apiResult = callRecuperatorApi($functionName, $queryParams, $requestedTarget);
-        $targetDesc = ($requestedTarget === '1') ? 'Wentylacja 1 (10.0.0.8)' : (($requestedTarget === '2') ? 'Wentylacja 2 (10.0.0.9)' : 'Obie jednostki (10.0.0.8 + 10.0.0.9)');
+        $targetDesc = ($requestedTarget === '1') ? 'Grzegorzka 8 (10.0.0.8)' : (($requestedTarget === '2') ? 'Grzegorzka 8A (10.0.0.9)' : 'Obie jednostki (Grzegorzka 8 + Grzegorzka 8A)');
 
         $msgParts = [];
         foreach ($apiResult['results'] as $ip => $r) {
@@ -1766,11 +1766,11 @@ $currentModeInfo = getVentilationModeInfo();
             </label>
             <label class="target-pill" id="pill_1" onclick="setTarget('1')">
                 <input type="radio" name="target_radio" value="1">
-                <span>Tylko Wentylacja 1 (10.0.0.8)</span>
+                <span>Tylko Grzegorzka 8 (10.0.0.8)</span>
             </label>
             <label class="target-pill" id="pill_2" onclick="setTarget('2')">
                 <input type="radio" name="target_radio" value="2">
-                <span>Tylko Wentylacja 2 (10.0.0.9)</span>
+                <span>Tylko Grzegorzka 8A (10.0.0.9)</span>
             </label>
         </div>
     </div>
@@ -1795,7 +1795,7 @@ $currentModeInfo = getVentilationModeInfo();
         </div>
 
         <div class="devices-dashboard">
-            <!-- Karta Wentylacja 1 (10.0.0.8) -->
+            <!-- Karta Grzegorzka 8 (10.0.0.8) -->
             <div class="device-card-large" id="card_dev_1">
                 <div class="dev-header-row">
                     <div class="dev-info-left">
@@ -1804,7 +1804,7 @@ $currentModeInfo = getVentilationModeInfo();
                         </div>
                         <div>
                             <div class="dev-title-text">
-                                <span>Wentylacja 1</span>
+                                <span>Grzegorzka 8</span>
                                 <span class="dev-ip-tag">10.0.0.8</span>
                             </div>
                             <div class="dev-subtitle-text">Jednostka główna</div>
@@ -1874,7 +1874,7 @@ $currentModeInfo = getVentilationModeInfo();
                 </div>
             </div>
 
-            <!-- Karta Wentylacja 2 (10.0.0.9) -->
+            <!-- Karta Grzegorzka 8A (10.0.0.9) -->
             <div class="device-card-large" id="card_dev_2">
                 <div class="dev-header-row">
                     <div class="dev-info-left">
@@ -1883,7 +1883,7 @@ $currentModeInfo = getVentilationModeInfo();
                         </div>
                         <div>
                             <div class="dev-title-text">
-                                <span>Wentylacja 2</span>
+                                <span>Grzegorzka 8A</span>
                                 <span class="dev-ip-tag">10.0.0.9</span>
                             </div>
                             <div class="dev-subtitle-text">Jednostka dodatkowa</div>
@@ -2244,7 +2244,7 @@ $currentModeInfo = getVentilationModeInfo();
         if (activePill) activePill.classList.add('active');
         const customTargetInput = document.getElementById('custom_manual_target');
         if (customTargetInput) customTargetInput.value = target;
-        showToast("Zmieniono cel poleceń: " + (target === '1' ? 'Wentylacja 1 (10.0.0.8)' : (target === '2' ? 'Wentylacja 2 (10.0.0.9)' : 'Obie jednostki (10.0.0.8 + 10.0.0.9)')), 'info');
+        showToast("Zmieniono cel poleceń: " + (target === '1' ? 'Grzegorzka 8 (10.0.0.8)' : (target === '2' ? 'Grzegorzka 8A (10.0.0.9)' : 'Obie jednostki (Grzegorzka 8 + Grzegorzka 8A)')), 'info');
     }
 
     function getAiringTime() {

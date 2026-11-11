@@ -230,8 +230,8 @@ curl -s "http://10.0.0.4/wentylacja.php?api=temperatures"
 curl -s "http://10.0.0.4/wentylacja.php?action=get_temperatures"
 
 # Odpytanie o temperatury wybranej jednostki:
-curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=1"   # tylko Wentylacja 1 (10.0.0.8)
-curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=2"   # tylko Wentylacja 2 (10.0.0.9)
+curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=1"   # tylko Grzegorzka 8 (10.0.0.8)
+curl -s "http://10.0.0.4/wentylacja.php?api=temperatures&target=2"   # tylko Grzegorzka 8A (10.0.0.9)
 
 # Bezpośrednie zapytanie cURL do pojedynczego urządzenia:
 /usr/bin/curl 'http://10.0.0.8/API/RunFunction?name=GetTemperatures'
@@ -1321,3 +1321,30 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
        - `curl -s -X POST http://10.0.0.4/wentylacja.php -d "action=manual&nawiew=60&wywiew=40"` &rarr; `airflowvalue=60`, `valueofairextraction=40` &rarr; obie jednostki: HTTP 200, OK.
        - `curl -s -X POST http://10.0.0.2/wentylacja.php -d "action=manual&airflow=90&extraction=70"` &rarr; `airflowvalue=90`, `valueofairextraction=70` &rarr; obie jednostki: HTTP 200, OK.
        - `curl -s "http://10.0.0.4/wentylacja.php?action=manual&airflow=80&extraction=60"` &rarr; `airflowvalue=80`, `valueofairextraction=60` &rarr; obie jednostki: HTTP 200, OK.
+
+
+### Wpis 29: Zmiana nazw jednostek wentylacyjnych na Grzegorzka 8 (10.0.0.8) i Grzegorzka 8A (10.0.0.9)
+- **Dokładne zapytanie użytkownika:**
+  > *„zmien nazwe Wentylacja 1 na Grzegorzka 8 i Wentylacja 2 na Grzegorzka 8A”*
+- **Podjęte działania i wyniki produkcyjne:**
+  1. **Aktualizacja kodu paneli wentylacji ([`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) oraz [`src/pi0/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi0/wentylacja.php)):**
+     - Zaktualizowano tablicę konfiguracyjną `$WENTYLACJA`:
+       - `10.0.0.8`: `name` zmieniono z `Wentylacja 1` na **`Grzegorzka 8`**.
+       - `10.0.0.9`: `name` zmieniono z `Wentylacja 2` na **`Grzegorzka 8A`**.
+     - Zaktualizowano przełącznik wyboru jednostek (target pills):
+       - **`Tylko Grzegorzka 8 (10.0.0.8)`**
+       - **`Tylko Grzegorzka 8A (10.0.0.9)`**
+     - Zaktualizowano karty urządzeń w sekcji *Aktualne Parametry Pracy Urządzeń*:
+       - Nagłówek lewej karty: **`Grzegorzka 8`** (`10.0.0.8`).
+       - Nagłówek prawej karty: **`Grzegorzka 8A`** (`10.0.0.9`).
+     - Zaktualizowano powiadomienia toast w JavaScript (`setTarget`) oraz opisy zwracane przez API (`targetDesc`):
+       - `target=1` &rarr; `Grzegorzka 8 (10.0.0.8)`
+       - `target=2` &rarr; `Grzegorzka 8A (10.0.0.9)`
+       - `target=both` &rarr; `Obie jednostki (Grzegorzka 8 + Grzegorzka 8A)`
+  2. **Wdrożenie na serwery:**
+     - **PI1 (`10.0.0.4`):** wdrożono do `/var/www/wentylacja.php` (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`).
+     - **PI0 (`10.0.0.2`):** wdrożono do `/var/www/wentylacja.php` (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`).
+  3. **Weryfikacja:**
+     - Brak błędów składni PHP na obu maszynach (`No syntax errors detected`).
+     - Odpytano API `http://10.0.0.4/wentylacja.php?api=temperatures` – potwierdzono nowe nazwy w formacie JSON (`"name": "Grzegorzka 8"`, `"name": "Grzegorzka 8A"`).
+     - Zweryfikowano wyrenderowany kod HTML na obu serwerach (`10.0.0.4` oraz `10.0.0.2`).
