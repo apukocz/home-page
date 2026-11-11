@@ -1114,6 +1114,10 @@ $currentUser = function_exists('posix_getpwuid') && function_exists('posix_geteu
                 <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
                 <span>Wentylacja</span>
             </a>
+            <a href="http://10.0.0.4/brama.php" class="server-nav-link" title="Sterowanie bramami posesji">
+                <svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M4 8h16M4 16h16M9 4v16M15 4v16"/></svg>
+                <span>Brama</span>
+            </a>
         </div>
     </nav>
 

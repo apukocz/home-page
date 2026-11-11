@@ -48,7 +48,8 @@ Panel serwera PI1 (**Sterowanie Roletami PI1**) został zorganizowany w 4 czytel
 ### Widoki na serwerze PI1:
 - **Główny ([`src/pi1/index.php`](file:///home/user/home-page/src/pi1/index.php)):** 10 pozycji z akordeonami rozwijania pojedynczych skrzydeł (przycisk globalny **`Rozwiń szczegóły (4)`**), przyciski grupowe sekcji oraz pełna obsługa AJAX.
 - **Wszystkie przekaźniki ([`src/pi1/index_full.php`](file:///home/user/home-page/src/pi1/index_full.php)):** 16 niezależnych fizycznych przekaźników z osobnymi przyciskami Otwórz/Zamknij i Stop.
-- **Pasek Paneli (`<nav class="server-nav">`):** ujednolicony pasek nawigacji umieszczony na szczycie strony z bezpośrednimi odnośnikami do wszystkich 4 paneli: **Kotłownia** (`10.0.0.2`), **Grzegorzka 8** (`10.0.0.4`), **Grzegorzka 8A** (`10.0.0.5`) oraz **Wentylacja** (bez surowych adresów IP w opisie).
+- **Dedykowany panel bram ([`src/pi1/brama.php`](file:///home/user/home-page/src/pi1/brama.php) oraz alias `bramy.php`):** Niezależny, zoptymalizowany panel z dużymi klawiszami pilota dla Bramy wjazdowej (GPIO 530) oraz Bramy garażowej (GPIO 527), przyciskami funkcyjnymi Otwórz/Zamknij/Stop, wspólnym sterowaniem obiema bramami, podglądem logu `script_brama.log` oraz Optimistic UI i asynchronicznym pollingiem statusu co 2.5s.
+- **Pasek Paneli (`<nav class="server-nav">`):** ujednolicony pasek nawigacji umieszczony na szczycie strony z bezpośrednimi odnośnikami do wszystkich 5 paneli: **Kotłownia** (`10.0.0.2`), **Grzegorzka 8** (`10.0.0.4`), **Grzegorzka 8A** (`10.0.0.5`), **Wentylacja** oraz **Brama**.
 - **Zgodność wsteczna z Alexa / skryptami legacy:** zachowano pełną obsługę parametrów GET `?sw1=on`, `?sw2=on`, `?sw3=on`, `?sw101=on` (stop) itd.
 
 ---
@@ -170,6 +171,15 @@ curl -X POST http://10.0.0.4/index.php -d "room=dach&action=open"
 # 5. Bramy posesji (sterowanie dedykowanym skryptem script_brama.sh):
 curl -X POST http://10.0.0.4/index.php -d "room=brama_wjazd&action=open"
 curl -X POST http://10.0.0.4/index.php -d "room=brama_garaz&action=open"
+
+# 5a. Dedykowany panel i API bram posesji (brama.php):
+curl -s "http://10.0.0.4/brama.php?api=status"
+curl -X POST http://10.0.0.4/brama.php -d "gate=brama_wjazd&action=open"
+curl -X POST http://10.0.0.4/brama.php -d "gate=brama_garaz&action=open"
+curl -X POST http://10.0.0.4/brama.php -d "gate=ALL&action=open"
+curl -X POST http://10.0.0.4/brama.php -d "gate=ALL&action=stop"
+curl -s "http://10.0.0.4/brama.php?brama_wjazd=open"
+curl -s "http://10.0.0.4/brama.php?brama_garaz=open"
 
 # Bezpośrednie wywołanie skryptu z konsoli serwera PI1:
 # Dla Bramy wjazdowej (GPIO 530, impuls 0.5s):
@@ -361,6 +371,7 @@ curl -s "http://10.0.0.2/wentylacja.php?action=slow"
 │   ├── pi0/                     # Serwer 10.0.0.2 (Kotłownia: Piec CWU, Piec CO, Pompa + Wentylacja)
 │   │   ├── config.php           # Konfiguracja urządzeń GPIO, mapowania rejestrów i funkcji
 │   │   ├── index.php            # Główny panel WWW PI0 (Piec CWU, Piec CO, Pompa)
+│   │   ├── brama.php            # Przekierowanie do panelu bram na PI1 (10.0.0.4)
 │   │   ├── script_piec_gaz_cwu.sh # Skrypt sterowania Piecem CWU (open / close)
 │   │   ├── script_piec_gaz.sh   # Skrypt sterowania Piecem CO (open / close)
 │   │   ├── script_pompa_obieg.sh # Skrypt sterowania pompą obiegową (open / close)
@@ -370,6 +381,8 @@ curl -s "http://10.0.0.2/wentylacja.php?action=slow"
 │   │   ├── config.php           # Konfiguracja pomieszczeń, sekcji i przekaźników
 │   │   ├── index.php            # Główny panel WWW PI1 (10 pokoi + akordeony)
 │   │   ├── index_full.php       # Szczegółowy panel WWW PI1 (16 przekaźników)
+│   │   ├── brama.php            # Dedykowany panel WWW i API sterowania bramami (wjazdowa i garażowa)
+│   │   ├── bramy.php            # Alias kompatybilności wstecznej (dołącza brama.php)
 │   │   ├── wentylacja.php       # Panel i API sterowania dwiema jednostkami wentylacji (10.0.0.8 i 10.0.0.9)
 │   │   ├── rekuperacja.php      # Alias kompatybilności wstecznej (dołącza wentylacja.php)
 │   │   ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=14)
@@ -382,6 +395,7 @@ curl -s "http://10.0.0.2/wentylacja.php?action=slow"
 │       ├── config.php           # Konfiguracja pomieszczeń, kondygnacji i przekaźników
 │       ├── index.php            # Główny panel WWW PI2 (10 pokoi + akordeony)
 │       ├── index_full.php       # Szczegółowy panel WWW PI2 (13 przekaźników)
+│       ├── brama.php            # Przekierowanie do panelu bram na PI1 (10.0.0.4)
 │       ├── script.sh            # Skrypt sterujący roletami I2C (RELAY_POWER=535)
 │       └── gpio/
 │           ├── relay_setup.conf # Konfiguracja fizycznych rejestrów PI2
@@ -1196,4 +1210,35 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Zweryfikowano brak błędów składni PHP (`php -l /var/www/index.php`), uprawnienia `chmod 775` oraz właściciela `www-data:www-data`.
   4. **Weryfikacja na żywo:**
      - Sprawdzono wyrenderowany kod HTML `curl -s http://10.0.0.2/index.php` potwierdzając wyświetlanie przycisków **`Włącz`** dla wyłączonych pieców CWU i CO.
+
+
+### Wpis 26: Utworzenie nowej strony brama.php oraz dodanie linku Brama na górnej belce Panele:
+- **Dokładne zapytanie użytkownika:**
+  > *„chcialbym abys utworzyl nowa strone brama.php na ktorej beda klawisze dla "Brama" czyli "brama wjazdowa" i "brama garazowa" oraz link Brama na gornej belce Panele:”*
+- **Podjęte działania i wyniki implementacji:**
+  1. **Utworzenie dedykowanego panelu [`src/pi1/brama.php`](file:///mnt/z/Vagrant/home-page/src/pi1/brama.php) oraz aliasu [`src/pi1/bramy.php`](file:///mnt/z/Vagrant/home-page/src/pi1/bramy.php) na serwerze PI1 (`10.0.0.4`):**
+     - Zaprojektowano nowoczesny, responsywny panel sterowania bramami posesji zgodny z design systemem projektu (ciemny motyw, karty, ikony SVG, powiadomienia Toast, diagnostyka w stopce).
+     - **Dwie główne karty urządzeń:**
+       - **Brama wjazdowa (GPIO 530, pin 24):** Duży główny klawisz pilota `Klawisz: Brama wjazdowa` (impuls 0.5s), dynamiczna plakietka statusu (`● OTWARTA`, `○ ZAMKNIĘTA`, `● IMPULS...`) oraz przyciski funkcyjne `Otwórz`, `Zamknij`, `Stop`.
+       - **Brama garażowa (GPIO 527, pin 21):** Duży główny klawisz pilota `Klawisz: Brama garażowa` (impuls 0.5s), dynamiczna plakietka statusu oraz przyciski funkcyjne `Otwórz`, `Zamknij`, `Stop`.
+     - **Akcje grupowe:** Sekcja szybkiego wyzwalania `Otwórz obie`, `Zamknij obie` oraz `Stop obie`.
+     - **Podgląd ostatnich operacji:** Dynamiczna lista ostatnich wywołań pobierana na bieżąco z pliku `/var/www/gpio/script_brama.log`.
+     - **Optimistic UI i asynchroniczny polling:** Natychmiastowa reakcja 0 ms na kliknięcie z animacją pulsowania i spinnerem, automatyczny polling co 2.5s przez API `brama.php?api=status`.
+     - **Obsługa REST API i cURL:** Pełne wsparcie dla parametrów POST i GET (`gate=brama_wjazd`, `action=open|close|stop`, `?brama_wjazd=open`, `?brama_garaz=open` itd.).
+  2. **Dodanie linku `Brama` na górnej belce nawigacyjnej `Panele:` we wszystkich panelach:**
+     - Dodano odnośnik z dedykowaną ikoną bramy posesji (`<svg viewBox="0 0 24 24"><path d="M4 4v16M20 4v16M4 8h16M4 16h16M9 4v16M15 4v16"/></svg>`):
+       - [`src/pi1/index.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index.php) &rarr; `<a href="brama.php" ...>`
+       - [`src/pi1/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi1/index_full.php) &rarr; `<a href="brama.php" ...>`
+       - [`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) &rarr; `<a href="brama.php" ...>`
+       - [`src/pi1/brama.php`](file:///mnt/z/Vagrant/home-page/src/pi1/brama.php) &rarr; aktywny link `class="server-nav-link active"`
+       - [`src/pi0/index.php`](file:///mnt/z/Vagrant/home-page/src/pi0/index.php) &rarr; `<a href="http://10.0.0.4/brama.php" ...>`
+       - [`src/pi0/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi0/wentylacja.php) &rarr; `<a href="http://10.0.0.4/brama.php" ...>`
+       - [`src/pi2/index.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index.php) &rarr; `<a href="http://10.0.0.4/brama.php" ...>`
+       - [`src/pi2/index_full.php`](file:///mnt/z/Vagrant/home-page/src/pi2/index_full.php) &rarr; `<a href="http://10.0.0.4/brama.php" ...>`
+  3. **Pliki przekierowujące na PI0 i PI2:**
+     - Utworzono [`src/pi0/brama.php`](file:///mnt/z/Vagrant/home-page/src/pi0/brama.php) oraz [`src/pi2/brama.php`](file:///mnt/z/Vagrant/home-page/src/pi2/brama.php) przekierowujące (302) bezpośrednio do `http://10.0.0.4/brama.php`.
+  4. **Weryfikacja:**
+     - Brak błędów składni PHP (`No syntax errors detected`) we wszystkich 11 plikach.
+     - Przetestowano endpoint `brama.php?api=status` oraz wywołania akcji w CLI.
+
 
