@@ -1286,3 +1286,38 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Składnia PHP poprawna na obu serwerach (`No syntax errors detected`).
      - `curl -s "http://10.0.0.4/wentylacja.php?api=temperatures"` oraz `curl -s "http://10.0.0.2/wentylacja.php?api=temperatures"` zwracają dane z poprawnymi polami `current_mode` i `current_mode_label`.
      - Przetestowano kod HTML obu stron potwierdzając poprawną kolejność sekcji oraz obecność kafelka z aktualnym trybem pracy.
+
+
+### Wpis 28: Poprawa pobierania i przekazywania wartości z formularza dla Własnej Regulacji Prędkości w panelu Wentylacja (PI1 i PI0)
+- **Dokładne zapytania użytkownika:**
+  > *„Popraw na stronie wentylacja \"Tryby Wentylacji (Przepływ Powietrza)\" - wlasna regulacja predkosci nie przekazuje wartosci z Nawiew a jedynie do polecenia wysyla dla polcenia wartosc z wywiew a powinna odpowiednio wartosc dla nawiew i dla wywiew”*
+  > *„popraw polecenie na 10.0.0.4”*
+  > *„w regulacji Własna regulacja prędkości: uzywa sie polecenia /usr/bin/curl 'http://10.0.0.8/API/RunFunction?name=ManualMode&airflowvalue=100&valueofairextraction=100'. Niestety z formularza nie pobiera sie wartosci poprawnie - czy mozesz to poprawic”*
+- **Przyczyna problemu:**
+  - W kodzie HTML sekcji *„Własna regulacja prędkości”* pola tekstowe posiadały wyłącznie atrybuty `id="custom_airflow"` i `id="custom_extraction"`, brakowało natomiast standardowych atrybutów `name="airflow"` oraz `name="extraction"`. Brak atrybutu `name` uniemożliwiał standardową serializację pól formularza przez przeglądarkę.
+  - Sekcja nie była otoczona tagiem `<form>`, co blokowało obsługę klawisza Enter oraz standardowego przesyłania formularza metodą POST.
+  - Po stronie PHP obsługa akcji `manual` weryfikowała wąski zestaw kluczy i w razie braku ich dopasowania przyjmowała wartość domyślną 100%, przez co do polecenia API rekuperatora `/API/RunFunction?name=ManualMode&airflowvalue=...&valueofairextraction=...` trafiały wartości domyślne zamiast wpisanych przez użytkownika.
+- **Wprowadzone poprawki:**
+  1. **Struktura formularza HTML ([`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) oraz [`src/pi0/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi0/wentylacja.php)):**
+     - Zamieniono kontener na pełnoprawny `<form class="param-bar" id="form_custom_manual" method="POST" action="wentylacja.php" onsubmit="applyCustomManual(document.getElementById('btn_custom_manual')); return false;">`.
+     - Dodano atrybuty `name="airflow"` oraz `name="extraction"` do pól numerycznych z `id="custom_airflow"` i `id="custom_extraction"`.
+     - Dodano ukryte pola `<input type="hidden" name="action" value="manual">` oraz `<input type="hidden" name="target" id="custom_manual_target" value="both">`.
+     - Przycisk otrzymał typ `type="submit"`, identyfikator `id="btn_custom_manual"` oraz bezpieczną obsługę wywołania AJAX/Optimistic UI.
+  2. **Aktualizacja logiki JavaScript:**
+     - W funkcji `applyCustomManual`: dynamiczne pobieranie elementów po ID oraz selektorach atrybutu `name`, walidacja i bezpieczne ograniczenie wartości do przedziału 10–100%, przekazywanie kompletu aliasów parametrów (`airflow`, `extraction`, `airflowvalue`, `valueofairextraction`, `nawiew`, `wywiew`) do funkcji `execCmd`.
+     - W funkcji `setTarget`: dynamiczna synchronizacja ukrytego pola `#custom_manual_target` przy zmianie jednostki docelowej.
+     - W funkcji `execCmd`: obsługa Optimistic UI dla trybu manualnego uwzględniająca wszystkie przekazane klucze prędkości.
+  3. **Backend PHP (obsługa akcji `manual` oraz bezpośredniego wywołania `ManualMode`):**
+     - Zaimplementowano kompleksowe odczytywanie wartości nawiewu (`airflowvalue`): `$_POST['airflow']`, `$_GET['airflow']`, `$_POST['airflowvalue']`, `$_GET['airflowvalue']`, `$_POST['custom_airflow']`, `$_GET['custom_airflow']`, `$_POST['nawiew']`, `$_GET['nawiew']`, `$_POST['supply']`, `$_GET['supply']`.
+     - Zaimplementowano kompleksowe odczytywanie wartości wywiewu (`valueofairextraction`): `$_POST['extraction']`, `$_GET['extraction']`, `$_POST['valueofairextraction']`, `$_GET['valueofairextraction']`, `$_POST['custom_extraction']`, `$_GET['custom_extraction']`, `$_POST['wywiew']`, `$_GET['wywiew']`, `$_POST['wyciag']`, `$_GET['wyciag']`, `$_POST['extract']`, `$_GET['extract']`.
+     - Wartości są rzutowane na liczby całkowite i ograniczane do zakresu 10–100%.
+     - Generowane zapytanie HTTP cURL do rekuperatorów: `http://<ip>/API/RunFunction?name=ManualMode&airflowvalue=<nawiew>&valueofairextraction=<wywiew>`.
+  4. **Wdrożenie produkcyjne na serwery:**
+     - **PI1 (`10.0.0.4`):** przesłano plik do `/var/www/wentylacja.php` (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`, składnia PHP poprawna).
+     - **PI0 (`10.0.0.2`):** przesłano plik do `/var/www/wentylacja.php` (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`, składnia PHP poprawna).
+  5. **Weryfikacja na żywo:**
+     - Przetestowano wywołania POST i GET z różnymi wartościami:
+       - `curl -s -X POST http://10.0.0.4/wentylacja.php -d "action=manual&airflow=85&extraction=75"` &rarr; `airflowvalue=85`, `valueofairextraction=75` &rarr; obie jednostki: HTTP 200, OK.
+       - `curl -s -X POST http://10.0.0.4/wentylacja.php -d "action=manual&nawiew=60&wywiew=40"` &rarr; `airflowvalue=60`, `valueofairextraction=40` &rarr; obie jednostki: HTTP 200, OK.
+       - `curl -s -X POST http://10.0.0.2/wentylacja.php -d "action=manual&airflow=90&extraction=70"` &rarr; `airflowvalue=90`, `valueofairextraction=70` &rarr; obie jednostki: HTTP 200, OK.
+       - `curl -s "http://10.0.0.4/wentylacja.php?action=manual&airflow=80&extraction=60"` &rarr; `airflowvalue=80`, `valueofairextraction=60` &rarr; obie jednostki: HTTP 200, OK.

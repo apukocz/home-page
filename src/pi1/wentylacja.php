@@ -533,14 +533,18 @@ if ($requestedAction !== null || $requestedName !== null) {
         if (strcasecmp($functionName, 'AutomaticMode') === 0) {
             setVentilationMode('auto');
         } elseif (strcasecmp($functionName, 'ManualMode') === 0) {
-            $af = (int)($queryParams['airflowvalue'] ?? 100);
-            $ex = (int)($queryParams['valueofairextraction'] ?? 100);
-            if ($af === 100 && $ex === 100) {
+            $rawAf = $queryParams['airflowvalue'] ?? $queryParams['airflow'] ?? $queryParams['nawiew'] ?? $queryParams['supply'] ?? null;
+            $rawEx = $queryParams['valueofairextraction'] ?? $queryParams['extraction'] ?? $queryParams['wywiew'] ?? $queryParams['extract'] ?? null;
+            $af = ($rawAf !== null && $rawAf !== '') ? (int)$rawAf : 100;
+            $ex = ($rawEx !== null && $rawEx !== '') ? (int)$rawEx : 100;
+            $queryParams['airflowvalue'] = max(10, min(100, $af));
+            $queryParams['valueofairextraction'] = max(10, min(100, $ex));
+            if ($queryParams['airflowvalue'] === 100 && $queryParams['valueofairextraction'] === 100) {
                 setVentilationMode('normal');
-            } elseif ($af === 80 && $ex === 70) {
+            } elseif ($queryParams['airflowvalue'] === 80 && $queryParams['valueofairextraction'] === 70) {
                 setVentilationMode('slow');
             } else {
-                setVentilationMode('manual', "Tryb ręczny ({$af}% / {$ex}%)");
+                setVentilationMode('manual', "Tryb ręczny ({$queryParams['airflowvalue']}% / {$queryParams['valueofairextraction']}%)");
             }
         } elseif (strcasecmp($functionName, 'TurnOnAiring') === 0) {
             $t = (int)($queryParams['time'] ?? 20);
@@ -602,8 +606,26 @@ if ($requestedAction !== null || $requestedName !== null) {
 
             case 'manual':
             case 'manual_custom':
-                $airflow = (int)($_POST['airflow'] ?? $_GET['airflow'] ?? $_POST['airflowvalue'] ?? $_GET['airflowvalue'] ?? 100);
-                $extraction = (int)($_POST['extraction'] ?? $_GET['extraction'] ?? $_POST['valueofairextraction'] ?? $_GET['valueofairextraction'] ?? 100);
+                // Odczyt wartości nawiewu (airflowvalue) ze wszystkich możliwych parametrów formularza / GET / POST
+                $rawAirflow = $_POST['airflow'] ?? $_GET['airflow']
+                    ?? $_POST['airflowvalue'] ?? $_GET['airflowvalue']
+                    ?? $_POST['custom_airflow'] ?? $_GET['custom_airflow']
+                    ?? $_POST['nawiew'] ?? $_GET['nawiew']
+                    ?? $_POST['supply'] ?? $_GET['supply']
+                    ?? null;
+
+                // Odczyt wartości wywiewu (valueofairextraction) ze wszystkich możliwych parametrów formularza / GET / POST
+                $rawExtraction = $_POST['extraction'] ?? $_GET['extraction']
+                    ?? $_POST['valueofairextraction'] ?? $_GET['valueofairextraction']
+                    ?? $_POST['custom_extraction'] ?? $_GET['custom_extraction']
+                    ?? $_POST['wywiew'] ?? $_GET['wywiew']
+                    ?? $_POST['wyciag'] ?? $_GET['wyciag']
+                    ?? $_POST['extract'] ?? $_GET['extract']
+                    ?? null;
+
+                $airflow = ($rawAirflow !== null && $rawAirflow !== '') ? (int)$rawAirflow : 100;
+                $extraction = ($rawExtraction !== null && $rawExtraction !== '') ? (int)$rawExtraction : 100;
+
                 $functionName = 'ManualMode';
                 $queryParams = [
                     'airflowvalue' => max(10, min(100, $airflow)),
@@ -1964,18 +1986,20 @@ $currentModeInfo = getVentilationModeInfo();
         </div>
 
         <!-- Własne parametry ManualMode -->
-        <div class="param-bar">
+        <form class="param-bar" id="form_custom_manual" method="POST" action="wentylacja.php" onsubmit="applyCustomManual(document.getElementById('btn_custom_manual')); return false;">
+            <input type="hidden" name="action" value="manual">
+            <input type="hidden" name="target" id="custom_manual_target" value="both">
             <span class="param-label">Własna regulacja prędkości:</span>
             <label class="param-label">Nawiew:
-                <input type="number" id="custom_airflow" class="param-input" min="10" max="100" value="85" step="5"> %
+                <input type="number" id="custom_airflow" name="airflow" class="param-input" min="10" max="100" value="85" step="5" required> %
             </label>
             <label class="param-label">Wywiew:
-                <input type="number" id="custom_extraction" class="param-input" min="10" max="100" value="75" step="5"> %
+                <input type="number" id="custom_extraction" name="extraction" class="param-input" min="10" max="100" value="75" step="5" required> %
             </label>
-            <button type="button" class="btn btn-secondary btn-xs" onclick="applyCustomManual(this)">
+            <button type="submit" class="btn btn-secondary btn-xs" id="btn_custom_manual" onclick="applyCustomManual(this); return false;">
                 <span>Zastosuj nastawę ręczną</span>
             </button>
-        </div>
+        </form>
     </div>
 
     <!-- 2. TRYB WAKACJE -->
@@ -2218,6 +2242,8 @@ $currentModeInfo = getVentilationModeInfo();
         document.querySelectorAll('.target-pill').forEach(pill => pill.classList.remove('active'));
         const activePill = document.getElementById('pill_' + target);
         if (activePill) activePill.classList.add('active');
+        const customTargetInput = document.getElementById('custom_manual_target');
+        if (customTargetInput) customTargetInput.value = target;
         showToast("Zmieniono cel poleceń: " + (target === '1' ? 'Wentylacja 1 (10.0.0.8)' : (target === '2' ? 'Wentylacja 2 (10.0.0.9)' : 'Obie jednostki (10.0.0.8 + 10.0.0.9)')), 'info');
     }
 
@@ -2249,9 +2275,25 @@ $currentModeInfo = getVentilationModeInfo();
     }
 
     function applyCustomManual(btn) {
-        const airflow = parseInt(document.getElementById('custom_airflow').value, 10) || 100;
-        const extraction = parseInt(document.getElementById('custom_extraction').value, 10) || 100;
-        execCmd('manual', { airflow: airflow, extraction: extraction }, btn);
+        const inputAirflow = document.getElementById('custom_airflow') || document.querySelector('input[name="airflow"]');
+        const inputExtraction = document.getElementById('custom_extraction') || document.querySelector('input[name="extraction"]');
+
+        let airflow = inputAirflow ? parseInt(inputAirflow.value, 10) : 100;
+        let extraction = inputExtraction ? parseInt(inputExtraction.value, 10) : 100;
+
+        if (isNaN(airflow)) airflow = 100;
+        if (isNaN(extraction)) extraction = 100;
+        airflow = Math.max(10, Math.min(100, airflow));
+        extraction = Math.max(10, Math.min(100, extraction));
+
+        execCmd('manual', {
+            airflow: airflow,
+            extraction: extraction,
+            airflowvalue: airflow,
+            valueofairextraction: extraction,
+            nawiew: airflow,
+            wywiew: extraction
+        }, btn);
     }
 
     function confirmReplaceFilters(btn) {
@@ -2277,8 +2319,8 @@ $currentModeInfo = getVentilationModeInfo();
         } else if (action === 'slow') {
             updateModeDisplay('slow', 'Tryb wolny');
         } else if (action === 'manual') {
-            const af = params.airflow || 100;
-            const ex = params.extraction || 100;
+            const af = params.airflow || params.airflowvalue || params.nawiew || 100;
+            const ex = params.extraction || params.valueofairextraction || params.wywiew || 100;
             updateModeDisplay('manual', `Tryb ręczny (${af}% / ${ex}%)`);
         } else if (action === 'holiday_on') {
             updateModeDisplay('holiday', `Tryb wakacje (${params.days || 1} dni)`);
