@@ -1242,3 +1242,47 @@ Poniższa sekcja zawiera chronologiczny, dosłowny zapis wszystkich zapytań uż
      - Przetestowano endpoint `brama.php?api=status` oraz wywołania akcji w CLI.
 
 
+
+
+### Wpis 27: Reorganizacja kolejności bloków oraz wyświetlanie i zapis aktualnego trybu pracy na stronie Wentylacja (PI1 i PI0)
+- **Dokładne zapytanie użytkownika:**
+  > *„Chcailbym abys na stronie Wentylacja zamienil kolejnosc blokow: Ogrzewanie/Nagrzewnica ma byc pod przewietrzanie, Tryb wakacje ma byc pod tryby wentylacji. Chcailbym abys rowniez dodal w jakim jest trybie aktualnie wentylacja napis ze jest Tryb Auto/ Tryb normalny lub wolny”*
+- **Podjęte działania i wyniki produkcyjne:**
+  1. **Zmiana kolejności bloków kontrolnych w panelu Wentylacja ([`src/pi1/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi1/wentylacja.php) oraz [`src/pi0/wentylacja.php`](file:///mnt/z/Vagrant/home-page/src/pi0/wentylacja.php)):**
+     - Przeniesiono blok **`Tryb Wakacje (Holiday)`** bezpośrednio pod blok **`Tryby Wentylacji (Przepływ Powietrza)`**.
+     - Przeniesiono blok **`Ogrzewanie / Nagrzewnica (Heating)`** bezpośrednio pod blok **`Przewietrzanie (Airing)`**.
+     - Nowa kolejność sekcji w panelu:
+       1. **Karty Aktualnych Parametrów Pracy Urządzeń** (temperatury w torze powietrza i stan podzespołów w czasie rzeczywistym),
+       2. **Tryby Wentylacji (Przepływ Powietrza)** (Auto, Normalny, Wolny, nastawa ręczna),
+       3. **Tryb Wakacje (Holiday)** *(bezpośrednio pod Trybami Wentylacji)*,
+       4. **Przewietrzanie (Airing)**,
+       5. **Ogrzewanie / Nagrzewnica (Heating)** *(bezpośrednio pod Przewietrzaniem)*,
+       6. **Bypass (Obejście Wymiennika)**,
+       7. **GWC (Gruntowy Wymiennik Ciepła)**,
+       8. **Zasilanie Jednostek**,
+       9. **Filtry i Serwis**.
+  2. **Przechowywanie i prezentacja aktualnego trybu pracy wentylacji:**
+     - Zaimplementowano lokalne przechowywanie wybranego trybu w pliku stanu `/var/www/gpio/wentylacja_mode.state` (format JSON z polami `mode`, `label`, `updated_at` oraz fallback tekstowy).
+     - Zmapowane etykiety trybów:
+       - `auto` &rarr; **`Tryb Auto`** (domyślny),
+       - `normal` &rarr; **`Tryb normalny`** (100% / 100%),
+       - `slow` &rarr; **`Tryb wolny`** (80% / 70%),
+       - `manual` &rarr; **`Tryb ręczny (X% / Y%)`**,
+       - `holiday` &rarr; **`Tryb wakacje (X dni)`**,
+       - `airing` &rarr; **`Przewietrzanie (X min)`**.
+     - **Prezentacja na stronie WWW:**
+       - **Główny nagłówek panelu:** wskaźnik `.current-mode-pill` z pulsującą zieloną diodą statusu (`●`) i wyraźnym napisem `Aktualny tryb: Tryb Auto` (lub `Tryb normalny` / `Tryb wolny`).
+       - **Nagłówek sekcji Tryby Wentylacji:** plakietka `.section-mode-badge` z aktualnym stanem.
+       - **Wyróżnienie przycisków:** klasa `.btn-mode-active` ze znacznikiem `● AKTYWNY` na aktywnym przycisku trybu.
+     - **Optimistic UI i aktualizacja w locie:**
+       - Natychmiastowa reakcja 0 ms w JavaScript (`updateModeDisplay`) przy kliknięciu przycisku dowolnego trybu,
+       - Dynamiczna synchronizacja przy odpowiedzi z API (`handleCmdResponse`) oraz podczas cyklicznego odświeżania temperatur (`refreshTemperatures`).
+     - **Rozszerzenie REST API:**
+       - Endpointy `api=temperatures`, `api=status` oraz odpowiedzi JSON wszystkich poleceń zawierają teraz pola `current_mode` i `current_mode_label`.
+  3. **Wdrożenie produkcyjne na serwery:**
+     - **PI1 (`10.0.0.4`):** przesłano do `/var/www/wentylacja.php` (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`).
+     - **PI0 (`10.0.0.2`):** przesłano do `/var/www/wentylacja.php` z zachowaniem nagłówka i linków PI0 (uprawnienia `-rwxrwxr-x`, właściciel `www-data:www-data`).
+  4. **Weryfikacja na żywo:**
+     - Składnia PHP poprawna na obu serwerach (`No syntax errors detected`).
+     - `curl -s "http://10.0.0.4/wentylacja.php?api=temperatures"` oraz `curl -s "http://10.0.0.2/wentylacja.php?api=temperatures"` zwracają dane z poprawnymi polami `current_mode` i `current_mode_label`.
+     - Przetestowano kod HTML obu stron potwierdzając poprawną kolejność sekcji oraz obecność kafelka z aktualnym trybem pracy.

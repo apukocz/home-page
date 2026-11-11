@@ -32,6 +32,73 @@ $REKUPERATORY = &$WENTYLACJA; // Alias dla wstecznej kompatybilności
 define('CURL_CONNECT_TIMEOUT_MS', 1500);
 define('CURL_TOTAL_TIMEOUT_MS', 2500);
 
+// Ścieżka do zapisu aktualnego trybu pracy wentylacji
+define('WENTYLACJA_STATE_DIR', is_dir('/var/www/gpio') ? '/var/www/gpio' : (is_dir(__DIR__ . '/gpio') ? __DIR__ . '/gpio' : __DIR__));
+define('WENTYLACJA_MODE_FILE', rtrim(WENTYLACJA_STATE_DIR, '/') . '/wentylacja_mode.state');
+
+/**
+ * Zwraca czytelną etykietę trybu wentylacji
+ */
+function getVentilationModeLabel($mode) {
+    $labels = [
+        'auto' => 'Tryb Auto',
+        'normal' => 'Tryb normalny',
+        'slow' => 'Tryb wolny',
+        'manual' => 'Tryb ręczny',
+        'airing' => 'Przewietrzanie (Airing)',
+        'holiday' => 'Tryb wakacje (Holiday)'
+    ];
+    return $labels[$mode] ?? 'Tryb Auto';
+}
+
+/**
+ * Odczytuje aktualnie zapisany tryb pracy wentylacji
+ */
+function getVentilationModeInfo() {
+    $default = [
+        'mode' => 'auto',
+        'label' => 'Tryb Auto',
+        'updated_at' => null
+    ];
+
+    if (file_exists(WENTYLACJA_MODE_FILE) && is_readable(WENTYLACJA_MODE_FILE)) {
+        $raw = trim(@file_get_contents(WENTYLACJA_MODE_FILE));
+        if (!empty($raw)) {
+            $json = json_decode($raw, true);
+            if (is_array($json) && !empty($json['mode'])) {
+                return [
+                    'mode' => $json['mode'],
+                    'label' => $json['label'] ?? getVentilationModeLabel($json['mode']),
+                    'updated_at' => $json['updated_at'] ?? null
+                ];
+            } else {
+                return [
+                    'mode' => $raw,
+                    'label' => getVentilationModeLabel($raw),
+                    'updated_at' => null
+                ];
+            }
+        }
+    }
+
+    return $default;
+}
+
+/**
+ * Zapisuje aktualny tryb pracy wentylacji do pliku stanu
+ */
+function setVentilationMode($mode, $customLabel = null) {
+    $mode = trim($mode);
+    $label = $customLabel ?: getVentilationModeLabel($mode);
+    $payload = [
+        'mode' => $mode,
+        'label' => $label,
+        'updated_at' => time()
+    ];
+    @file_put_contents(WENTYLACJA_MODE_FILE, json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n");
+    @chmod(WENTYLACJA_MODE_FILE, 0666);
+}
+
 /**
  * Wykonuje zapytania HTTP cURL równolegle do wybranych rekuperatorów za pomocą curl_multi
  * (z automatycznym fallbackiem do CLI curl / streams w razie braku modułu php-curl)
@@ -421,6 +488,9 @@ if ((isset($_GET['api']) && in_array(strtolower($_GET['api']), ['temperatures', 
     || $requestedAction === 'temperatures') {
     header('Content-Type: application/json; charset=utf-8');
     $temps = getRecuperatorTemperatures($requestedTarget);
+    $currentModeInfo = getVentilationModeInfo();
+    $temps['current_mode'] = $currentModeInfo['mode'];
+    $temps['current_mode_label'] = $currentModeInfo['label'];
     echo json_encode($temps, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -429,10 +499,13 @@ if ((isset($_GET['api']) && in_array(strtolower($_GET['api']), ['temperatures', 
 if ((isset($_GET['api']) && $_GET['api'] === 'status') || $requestedAction === 'status') {
     header('Content-Type: application/json; charset=utf-8');
     $conn = checkRecuperatorConnection($requestedTarget);
+    $currentModeInfo = getVentilationModeInfo();
     echo json_encode([
         'success' => true,
         'timestamp' => time(),
-        'statuses' => $conn
+        'statuses' => $conn,
+        'current_mode' => $currentModeInfo['mode'],
+        'current_mode_label' => $currentModeInfo['label']
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -456,6 +529,30 @@ if ($requestedAction !== null || $requestedName !== null) {
                 $queryParams[$k] = $v;
             }
         }
+
+        if (strcasecmp($functionName, 'AutomaticMode') === 0) {
+            setVentilationMode('auto');
+        } elseif (strcasecmp($functionName, 'ManualMode') === 0) {
+            $af = (int)($queryParams['airflowvalue'] ?? 100);
+            $ex = (int)($queryParams['valueofairextraction'] ?? 100);
+            if ($af === 100 && $ex === 100) {
+                setVentilationMode('normal');
+            } elseif ($af === 80 && $ex === 70) {
+                setVentilationMode('slow');
+            } else {
+                setVentilationMode('manual', "Tryb ręczny ({$af}% / {$ex}%)");
+            }
+        } elseif (strcasecmp($functionName, 'TurnOnAiring') === 0) {
+            $t = (int)($queryParams['time'] ?? 20);
+            setVentilationMode('airing', "Przewietrzanie ({$t} min)");
+        } elseif (strcasecmp($functionName, 'TurnOffAiring') === 0) {
+            setVentilationMode('auto');
+        } elseif (strcasecmp($functionName, 'TurnOnHoliday') === 0) {
+            $d = (int)($queryParams['days'] ?? 1);
+            setVentilationMode('holiday', "Tryb wakacje ({$d} dni)");
+        } elseif (strcasecmp($functionName, 'TurnOffHoliday') === 0) {
+            setVentilationMode('auto');
+        }
     }
     // 2. Mapowanie akcji panelu na funkcje API
     else {
@@ -478,6 +575,7 @@ if ($requestedAction !== null || $requestedName !== null) {
             case 'automatic_mode':
                 $functionName = 'AutomaticMode';
                 $humanDesc = 'Tryb Automatyczny (Auto)';
+                setVentilationMode('auto');
                 break;
 
             case 'normal':
@@ -488,6 +586,7 @@ if ($requestedAction !== null || $requestedName !== null) {
                     'valueofairextraction' => 100
                 ];
                 $humanDesc = 'Tryb Normalny (100% nawiew / 100% wywiew)';
+                setVentilationMode('normal');
                 break;
 
             case 'slow':
@@ -498,6 +597,7 @@ if ($requestedAction !== null || $requestedName !== null) {
                     'valueofairextraction' => 70
                 ];
                 $humanDesc = 'Tryb Wolny / Cichy (80% nawiew / 70% wywiew)';
+                setVentilationMode('slow');
                 break;
 
             case 'manual':
@@ -510,34 +610,41 @@ if ($requestedAction !== null || $requestedName !== null) {
                     'valueofairextraction' => max(10, min(100, $extraction))
                 ];
                 $humanDesc = "Tryb Ręczny ({$queryParams['airflowvalue']}% nawiew / {$queryParams['valueofairextraction']}% wywiew)";
+                setVentilationMode('manual', "Tryb ręczny ({$queryParams['airflowvalue']}% / {$queryParams['valueofairextraction']}%)");
                 break;
 
             // Wakacje
             case 'holiday_on':
+            case 'holiday':
                 $days = (int)($_POST['days'] ?? $_GET['days'] ?? 1);
                 $days = max(1, min(99, $days));
                 $functionName = 'TurnOnHoliday';
                 $queryParams = ['days' => $days];
                 $humanDesc = "Włączenie trybu Wakacje ({$days} dni)";
+                setVentilationMode('holiday', "Tryb wakacje ({$days} dni)");
                 break;
 
             case 'holiday_off':
                 $functionName = 'TurnOffHoliday';
                 $humanDesc = 'Wyłączenie trybu Wakacje';
+                setVentilationMode('auto');
                 break;
 
             // Wietrzenie (Airing)
             case 'airing_on':
+            case 'airing':
                 $time = (int)($_POST['time'] ?? $_GET['time'] ?? 20);
                 $time = max(1, min(180, $time));
                 $functionName = 'TurnOnAiring';
                 $queryParams = ['time' => $time];
                 $humanDesc = "Włączenie wietrzenia Airing ({$time} min)";
+                setVentilationMode('airing', "Przewietrzanie ({$time} min)");
                 break;
 
             case 'airing_off':
                 $functionName = 'TurnOffAiring';
                 $humanDesc = 'Wyłączenie wietrzenia Airing';
+                setVentilationMode('auto');
                 break;
 
             // Ogrzewanie (Heating)
@@ -646,10 +753,13 @@ if ($requestedAction !== null || $requestedName !== null) {
         }
 
         $summaryMsg = "{$humanDesc} &bull; {$targetDesc} &bull; " . implode(', ', $msgParts);
+        $currentModeInfo = getVentilationModeInfo();
         $response = array_merge([
             'message' => $summaryMsg,
             'desc' => $humanDesc,
-            'target_desc' => $targetDesc
+            'target_desc' => $targetDesc,
+            'current_mode' => $currentModeInfo['mode'],
+            'current_mode_label' => $currentModeInfo['label']
         ], $apiResult);
     }
 
@@ -674,6 +784,8 @@ if ($requestedAction !== null || $requestedName !== null) {
     header('Location: wentylacja.php');
     exit;
 }
+
+$currentModeInfo = getVentilationModeInfo();
 ?>
 <!DOCTYPE html>
 <html lang="pl">
@@ -1219,6 +1331,86 @@ if ($requestedAction !== null || $requestedName !== null) {
         .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
         .badge-secondary { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
 
+        /* Wskaźnik aktualnego trybu pracy */
+        .current-mode-container {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .current-mode-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(59, 130, 246, 0.45);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        }
+
+        .current-mode-pill .mode-pill-label {
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 0.8rem;
+        }
+
+        .current-mode-pill strong {
+            color: #60a5fa;
+            font-weight: 700;
+        }
+
+        .section-mode-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            color: #93c5fd;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        .mode-pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #10b981;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulseDot 2s infinite ease-in-out;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.35; transform: scale(0.85); }
+        }
+
+        .btn-mode-active {
+            box-shadow: 0 0 0 2px #ffffff, 0 0 14px rgba(59, 130, 246, 0.7) !important;
+            position: relative;
+            border-color: #60a5fa !important;
+        }
+
+        .btn-mode-active::after {
+            content: "● AKTYWNY";
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 0.68rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 4px;
+            letter-spacing: 0.04em;
+            color: #a7f3d0;
+        }
+
         /* Sekcje sterowania */
         .control-section {
             background: var(--bg-card);
@@ -1524,7 +1716,14 @@ if ($requestedAction !== null || $requestedName !== null) {
             </h1>
             <p>Równoległe sterowanie jednostkami wentylacyjnymi • HTTP REST API • Serwer PI1 (10.0.0.4)</p>
         </div>
-        <div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div class="current-mode-container" title="Aktualny tryb pracy wentylacji">
+                <div class="current-mode-pill" id="globalModePill">
+                    <span class="mode-pulse-dot"></span>
+                    <span class="mode-pill-label">Aktualny tryb:</span>
+                    <strong id="globalModeText"><?= htmlspecialchars($currentModeInfo['label']) ?></strong>
+                </div>
+            </div>
             <button type="button" class="btn btn-secondary btn-xs" onclick="checkAllStatuses()" title="Odśwież stan połączenia z jednostkami">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Sprawdź połączenie
@@ -1740,21 +1939,25 @@ if ($requestedAction !== null || $requestedName !== null) {
             <div>
                 <div class="section-title">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                    Tryby Wentylacji (Przepływ Powietrza)
+                    <span>Tryby Wentylacji (Przepływ Powietrza)</span>
+                    <span class="section-mode-badge" id="sectionModeBadge">
+                        <span class="mode-pulse-dot"></span>
+                        <span id="sectionModeText"><?= htmlspecialchars($currentModeInfo['label']) ?></span>
+                    </span>
                 </div>
                 <div class="section-desc">Regulacja wydajności wentylacji: Automatyczny, Normalny 100% lub Cichy/Wolny</div>
             </div>
         </div>
         <div class="btn-group">
-            <button type="button" class="btn btn-primary" onclick="execCmd('auto', {}, this)">
+            <button type="button" class="btn btn-primary <?= ($currentModeInfo['mode'] === 'auto') ? 'btn-mode-active' : '' ?>" id="btn_mode_auto" onclick="execCmd('auto', {}, this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 <span>Tryb Auto (AutomaticMode)</span>
             </button>
-            <button type="button" class="btn btn-cyan" onclick="execCmd('normal', {}, this)">
+            <button type="button" class="btn btn-cyan <?= ($currentModeInfo['mode'] === 'normal') ? 'btn-mode-active' : '' ?>" id="btn_mode_normal" onclick="execCmd('normal', {}, this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                 <span>Tryb Normalny (100% / 100%)</span>
             </button>
-            <button type="button" class="btn btn-amber" onclick="execCmd('slow', {}, this)">
+            <button type="button" class="btn btn-amber <?= ($currentModeInfo['mode'] === 'slow') ? 'btn-mode-active' : '' ?>" id="btn_mode_slow" onclick="execCmd('slow', {}, this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12h20M12 2v20M5 5l14 14"/></svg>
                 <span>Tryb Wolny (80% / 70%)</span>
             </button>
@@ -1775,13 +1978,46 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 2. WIETRZENIE (AIRING) -->
+    <!-- 2. TRYB WAKACJE -->
+    <div class="control-section">
+        <div class="section-header">
+            <div>
+                <div class="section-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                    <span>Tryb Wakacje (Holiday)</span>
+                </div>
+                <div class="section-desc">Minimalna wymiana powietrza na czas nieobecności domowników</div>
+            </div>
+        </div>
+        <div class="btn-group">
+            <button type="button" class="btn btn-purple" onclick="execCmd('holiday_on', { days: getHolidayDays() }, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span>Włącz Wakacje</span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('holiday_off', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>Wyłącz Wakacje (TurnOffHoliday)</span>
+            </button>
+        </div>
+        <div class="param-bar">
+            <span class="param-label">Liczba dni wakacji:</span>
+            <input type="number" id="input_holiday_days" class="param-input" min="1" max="99" value="1">
+            <div class="param-quick-btns">
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(1)">1 dzień</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(3)">3 dni</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(7)">7 dni</button>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(14)">14 dni</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. WIETRZENIE (AIRING) -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
-                    Przewietrzanie (Airing)
+                    <span>Przewietrzanie (Airing)</span>
                 </div>
                 <div class="section-desc">Intensywne wietrzenie pomieszczeń z automatycznym wyłączeniem po zadanym czasie</div>
             </div>
@@ -1808,67 +2044,13 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 3. BYPASS -->
-    <div class="control-section">
-        <div class="section-header">
-            <div>
-                <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
-                    Bypass (Obejście Wymiennika)
-                </div>
-                <div class="section-desc">Tryb pracy klapy obejścia: Automatyczny (mode=2), Otwarty - letni (mode=1) lub Zamknięty (mode=0)</div>
-            </div>
-        </div>
-        <div class="btn-group">
-            <button type="button" class="btn btn-primary" onclick="execCmd('bypass_auto', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                <span>Bypass Automatyczny (mode=2)</span>
-            </button>
-            <button type="button" class="btn btn-cyan" onclick="execCmd('bypass_open', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>
-                <span>Bypass Otwarty (mode=1)</span>
-            </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('bypass_close', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                <span>Bypass Zamknięty (mode=0)</span>
-            </button>
-        </div>
-    </div>
-
-    <!-- 4. GWC (GRUNTOWY WYMIENNIK CIEPŁA) -->
-    <div class="control-section">
-        <div class="section-header">
-            <div>
-                <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    GWC (Gruntowy Wymiennik Ciepła)
-                </div>
-                <div class="section-desc">Sterowanie czerpnią gruntową GWC: Auto (mode=2), Włączona (mode=1) lub Wyłączona (mode=0)</div>
-            </div>
-        </div>
-        <div class="btn-group">
-            <button type="button" class="btn btn-primary" onclick="execCmd('gwc_auto', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                <span>GWC Auto (mode=2)</span>
-            </button>
-            <button type="button" class="btn btn-success" onclick="execCmd('gwc_on', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>GWC Włącz (mode=1)</span>
-            </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('gwc_off', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                <span>GWC Wyłącz (mode=0)</span>
-            </button>
-        </div>
-    </div>
-
-    <!-- 5. OGRZEWANIE (HEATING) -->
+    <!-- 4. OGRZEWANIE (HEATING) -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
-                    Ogrzewanie / Nagrzewnica (Heating)
+                    <span>Ogrzewanie / Nagrzewnica (Heating)</span>
                 </div>
                 <div class="section-desc">Załączenie dogrzewania powietrza nawiewanego z nastawą temperatury komfortu</div>
             </div>
@@ -1896,36 +2078,57 @@ if ($requestedAction !== null || $requestedName !== null) {
         </div>
     </div>
 
-    <!-- 6. TRYB WAKACJE -->
+    <!-- 5. BYPASS -->
     <div class="control-section">
         <div class="section-header">
             <div>
                 <div class="section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
-                    Tryb Wakacje (Holiday)
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                    <span>Bypass (Obejście Wymiennika)</span>
                 </div>
-                <div class="section-desc">Minimalna wymiana powietrza na czas nieobecności domowników</div>
+                <div class="section-desc">Tryb pracy klapy obejścia: Automatyczny (mode=2), Otwarty - letni (mode=1) lub Zamknięty (mode=0)</div>
             </div>
         </div>
         <div class="btn-group">
-            <button type="button" class="btn btn-purple" onclick="execCmd('holiday_on', { days: getHolidayDays() }, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span>Włącz Wakacje</span>
+            <button type="button" class="btn btn-primary" onclick="execCmd('bypass_auto', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <span>Bypass Automatyczny (mode=2)</span>
             </button>
-            <button type="button" class="btn btn-secondary" onclick="execCmd('holiday_off', {}, this)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                <span>Wyłącz Wakacje (TurnOffHoliday)</span>
+            <button type="button" class="btn btn-cyan" onclick="execCmd('bypass_open', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>
+                <span>Bypass Otwarty (mode=1)</span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('bypass_close', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>Bypass Zamknięty (mode=0)</span>
             </button>
         </div>
-        <div class="param-bar">
-            <span class="param-label">Liczba dni wakacji:</span>
-            <input type="number" id="input_holiday_days" class="param-input" min="1" max="99" value="1">
-            <div class="param-quick-btns">
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(1)">1 dzień</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(3)">3 dni</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(7)">7 dni</button>
-                <button type="button" class="btn btn-secondary btn-xs" onclick="setHolidayInput(14)">14 dni</button>
+    </div>
+
+    <!-- 6. GWC (GRUNTOWY WYMIENNIK CIEPŁA) -->
+    <div class="control-section">
+        <div class="section-header">
+            <div>
+                <div class="section-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>GWC (Gruntowy Wymiennik Ciepła)</span>
+                </div>
+                <div class="section-desc">Sterowanie czerpnią gruntową GWC: Auto (mode=2), Włączona (mode=1) lub Wyłączona (mode=0)</div>
             </div>
+        </div>
+        <div class="btn-group">
+            <button type="button" class="btn btn-primary" onclick="execCmd('gwc_auto', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <span>GWC Auto (mode=2)</span>
+            </button>
+            <button type="button" class="btn btn-success" onclick="execCmd('gwc_on', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>GWC Włącz (mode=1)</span>
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="execCmd('gwc_off', {}, this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>GWC Wyłącz (mode=0)</span>
+            </button>
         </div>
     </div>
 
@@ -1987,6 +2190,28 @@ if ($requestedAction !== null || $requestedName !== null) {
     // Zmienna wybranego celu (domyślnie 'both')
     let currentTarget = 'both';
     let isRefreshingTemps = false;
+    let currentVentilationMode = <?= json_encode($currentModeInfo['mode']) ?>;
+    let currentVentilationLabel = <?= json_encode($currentModeInfo['label']) ?>;
+
+    function updateModeDisplay(mode, label) {
+        if (!mode) return;
+        currentVentilationMode = mode;
+        if (label) currentVentilationLabel = label;
+
+        const globalText = document.getElementById('globalModeText');
+        if (globalText) globalText.textContent = currentVentilationLabel;
+
+        const sectionText = document.getElementById('sectionModeText');
+        if (sectionText) sectionText.textContent = currentVentilationLabel;
+
+        const btnAuto = document.getElementById('btn_mode_auto');
+        const btnNormal = document.getElementById('btn_mode_normal');
+        const btnSlow = document.getElementById('btn_mode_slow');
+
+        if (btnAuto) btnAuto.classList.toggle('btn-mode-active', mode === 'auto');
+        if (btnNormal) btnNormal.classList.toggle('btn-mode-active', mode === 'normal');
+        if (btnSlow) btnSlow.classList.toggle('btn-mode-active', mode === 'slow');
+    }
 
     function setTarget(target) {
         currentTarget = target;
@@ -2044,6 +2269,27 @@ if ($requestedAction !== null || $requestedName !== null) {
             btnElement.innerHTML = '<span class="spinner"></span> <span>Wysyłanie...</span>';
         }
 
+        // Optimistic UI: natychmiastowa aktualizacja wskaźnika trybu pracy w panelu
+        if (action === 'auto') {
+            updateModeDisplay('auto', 'Tryb Auto');
+        } else if (action === 'normal') {
+            updateModeDisplay('normal', 'Tryb normalny');
+        } else if (action === 'slow') {
+            updateModeDisplay('slow', 'Tryb wolny');
+        } else if (action === 'manual') {
+            const af = params.airflow || 100;
+            const ex = params.extraction || 100;
+            updateModeDisplay('manual', `Tryb ręczny (${af}% / ${ex}%)`);
+        } else if (action === 'holiday_on') {
+            updateModeDisplay('holiday', `Tryb wakacje (${params.days || 1} dni)`);
+        } else if (action === 'holiday_off') {
+            updateModeDisplay('auto', 'Tryb Auto');
+        } else if (action === 'airing_on') {
+            updateModeDisplay('airing', `Przewietrzanie (${params.time || 20} min)`);
+        } else if (action === 'airing_off') {
+            updateModeDisplay('auto', 'Tryb Auto');
+        }
+
         const payload = new URLSearchParams();
         payload.append('action', action);
         payload.append('target', currentTarget);
@@ -2083,6 +2329,10 @@ if ($requestedAction !== null || $requestedName !== null) {
     function handleCmdResponse(data) {
         const now = new Date().toLocaleTimeString();
         const results = data.results || {};
+
+        if (data.current_mode) {
+            updateModeDisplay(data.current_mode, data.current_mode_label);
+        }
 
         let okCount = 0;
         let errCount = 0;
@@ -2124,6 +2374,10 @@ if ($requestedAction !== null || $requestedName !== null) {
             const response = await fetch('wentylacja.php?api=temperatures', { credentials: 'same-origin' });
             const data = await response.json();
             const devices = data.devices || {};
+
+            if (data.current_mode) {
+                updateModeDisplay(data.current_mode, data.current_mode_label);
+            }
 
             updateDeviceCard('1', '10.0.0.8', devices['10.0.0.8']);
             updateDeviceCard('2', '10.0.0.9', devices['10.0.0.9']);
